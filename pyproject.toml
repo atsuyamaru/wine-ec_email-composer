@@ -1,0 +1,12 @@
+[project]
+name = "wine-ec-email-composer"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "openai>=1.61.0",
+    "pydantic>=2.10.6",
+    "ruff>=0.9.4",
+    "streamlit>=1.40.1",
+]
