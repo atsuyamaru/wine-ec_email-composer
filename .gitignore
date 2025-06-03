@@ -1,0 +1,9 @@
+.DS_Store
+.vscode
+__pycache__
+
+# Vim temporary files
+*.swp
+*.swo
+*~
+*.un~
