@@ -9,4 +9,6 @@ dependencies = [
     "pydantic>=2.10.6",
     "ruff>=0.9.4",
     "streamlit>=1.40.1",
+    "pdfplumber>=0.11.0",
+    "pandas>=2.0.0",
 ]

@@ -18,6 +18,12 @@ temperature = 0.3
 st.write("### Email Generator: Single Wine 🍷")
 st.write("")
 
+# Check for imported wines
+imported_wines_available = 'imported_wines' in st.session_state and st.session_state['imported_wines']['full_info']
+
+if imported_wines_available:
+    st.info("🍷 You have imported wines available! You can select one below or enter manually.")
+
 # Input Form
 st.write("#### Input Form to Generate Email Contents")
 with st.form(key='ask_input_form'):
@@ -25,22 +31,57 @@ with st.form(key='ask_input_form'):
     key_comments = st.text_area(label="Key Comments in the tasting party")
     distribute_date = st.date_input(label="Email Distribute Date")
     st.divider()
+    
     # Wine Information
     st.write("##### Wine Information")
-    wine_name = st.text_input(label="Wine Name")
-    producer = st.text_input(label="Producer")
-    # wine_info = st.text_area(label="Wine Information")
-    wine_country = st.selectbox(label="Wine Country", options=[
-    "France", 
-    "Italy", 
-    "Spain", 
-    "Germany", 
-    "Portugal",
-    "America",
-    "South Africa"
-    ])
-    wine_cepage = st.text_input(label="Wine Cépage")
-    # tasting_comments_onpage = st.text_area(label="Tasting Comments on the webpage")
+    
+    # Option to use imported wine
+    use_imported = False
+    selected_wine = None
+    if imported_wines_available:
+        use_imported = st.checkbox("Use imported wine from PDF")
+        if use_imported:
+            wine_options = [f"{wine.name} ({wine.producer or 'Unknown producer'})" 
+                          for wine in st.session_state['imported_wines']['full_info']]
+            selected_idx = st.selectbox("Select imported wine", range(len(wine_options)), 
+                                      format_func=lambda x: wine_options[x])
+            selected_wine = st.session_state['imported_wines']['full_info'][selected_idx]
+    
+    if use_imported and selected_wine:
+        # Pre-fill with imported wine data
+        wine_name = st.text_input(label="Wine Name", value=selected_wine.name or "")
+        producer = st.text_input(label="Producer", value=selected_wine.producer or "")
+        
+        # Try to map country
+        countries = ["France", "Italy", "Spain", "Germany", "Portugal", "America", "South Africa"]
+        default_country_idx = 0
+        if selected_wine.country:
+            for i, country in enumerate(countries):
+                if selected_wine.country.lower() in country.lower() or country.lower() in selected_wine.country.lower():
+                    default_country_idx = i
+                    break
+        
+        wine_country = st.selectbox(label="Wine Country", options=countries, index=default_country_idx)
+        wine_cepage = st.text_input(label="Wine Cépage", value=selected_wine.grape_variety or "")
+        
+        # Show additional imported info
+        if selected_wine.description:
+            st.text_area("Additional Wine Information (from PDF)", value=selected_wine.description, disabled=True)
+    else:
+        # Manual input
+        wine_name = st.text_input(label="Wine Name")
+        producer = st.text_input(label="Producer")
+        wine_country = st.selectbox(label="Wine Country", options=[
+        "France", 
+        "Italy", 
+        "Spain", 
+        "Germany", 
+        "Portugal",
+        "America",
+        "South Africa"
+        ])
+        wine_cepage = st.text_input(label="Wine Cépage")
+    
     submit = st.form_submit_button(label='Generate')
 
 
