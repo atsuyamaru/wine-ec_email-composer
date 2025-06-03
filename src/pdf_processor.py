@@ -3,6 +3,8 @@ import re
 from typing import List, Dict, Optional
 from openai import OpenAI
 from type_schema import WineInfo, ParsedWineList
+from difflib import SequenceMatcher
+import unicodedata
 
 def extract_text_from_pdf(pdf_file) -> str:
     """Extract text from uploaded PDF file."""
@@ -129,3 +131,386 @@ def format_wines_for_display(parsed_wines: ParsedWineList) -> str:
         formatted_text += "\n"
     
     return formatted_text
+
+def normalize_wine_name(name: str) -> str:
+    """Normalize wine name for comparison by removing common variations."""
+    if not name:
+        return ""
+    
+    # Remove HTML tags if present
+    normalized = re.sub(r'<[^>]+>', '', name)
+    
+    # Normalize Unicode characters (remove accents, etc.)
+    normalized = unicodedata.normalize('NFKD', normalized)
+    normalized = ''.join(c for c in normalized if not unicodedata.combining(c))
+    
+    # Convert to lowercase and remove extra spaces
+    normalized = re.sub(r'\s+', ' ', normalized.strip().lower())
+    
+    # Remove common wine type suffixes and descriptors
+    wine_suffixes = [
+        r'\s+(nv|non vintage|brut|sec|demi-sec|doux|rouge|blanc|rose|vin|wine)$',
+        r'\s+(zero|dosage zero|extra brut|extra dry)$',
+        r'\s+(reserve|reserva|gran reserva|riserva)$',
+        r'\s+(cuvee|special|selection|premium|classic)$'
+    ]
+    for suffix in wine_suffixes:
+        normalized = re.sub(suffix, '', normalized)
+    
+    # Remove years (2-4 digits)
+    normalized = re.sub(r'\s+\d{2,4}$', '', normalized)
+    
+    # Remove common French/English articles and prepositions
+    articles = [
+        r'^(le|la|les|de|du|des|the|a|an|von|vom|zur|della|del|di|da)\s+',
+        r'\s+(de|du|des|von|vom|zur|della|del|di|da)\s+',
+    ]
+    for article in articles:
+        normalized = re.sub(article, ' ', normalized)
+    
+    # Remove common wine region indicators
+    normalized = re.sub(r'\s+(aoc|aop|doc|docg|igp|vdp|appellation)\s*', ' ', normalized)
+    
+    # Clean up multiple spaces
+    normalized = re.sub(r'\s+', ' ', normalized.strip())
+    
+    # Remove special characters and punctuation
+    normalized = re.sub(r'[^\w\s]', '', normalized)
+    
+    return normalized
+
+def extract_wine_identity(wine: WineInfo) -> dict:
+    """Extract core wine identity components for matching."""
+    
+    # Main wine name processing
+    name = wine.name or ""
+    normalized_name = normalize_wine_name(name)
+    
+    # Extract wine type/style indicators
+    wine_types = set()
+    type_patterns = [
+        r'(champagne|cremant|cava|prosecco|sparkling)',
+        r'(chardonnay|sauvignon|pinot|merlot|cabernet|syrah|shiraz)',
+        r'(rouge|blanc|rose|red|white|pink)',
+        r'(brut|sec|demi|doux|dry|sweet)',
+        r'(reserve|premium|grand|cuvee)',
+    ]
+    
+    for pattern in type_patterns:
+        matches = re.findall(pattern, normalized_name.lower())
+        wine_types.update(matches)
+    
+    # Extract geographic indicators
+    regions = set()
+    if wine.region:
+        regions.add(normalize_wine_name(wine.region))
+    if wine.country:
+        regions.add(normalize_wine_name(wine.country))
+    
+    # Extract key name components (remove common words)
+    stop_words = {
+        'de', 'du', 'des', 'le', 'la', 'les', 'the', 'and', 'et', 'von', 'vom', 'della', 'del', 'di', 'da',
+        'wine', 'vin', 'vino', 'domaine', 'chateau', 'estate', 'winery', 'cave', 'maison'
+    }
+    
+    name_words = set()
+    for word in normalized_name.split():
+        if len(word) > 2 and word not in stop_words:
+            name_words.add(word)
+    
+    # Extract producer info
+    producer_words = set()
+    if wine.producer:
+        producer_norm = normalize_wine_name(wine.producer)
+        for word in producer_norm.split():
+            if len(word) > 2 and word not in stop_words:
+                producer_words.add(word)
+    
+    return {
+        'name_words': name_words,
+        'producer_words': producer_words,
+        'wine_types': wine_types,
+        'regions': regions,
+        'grape_variety': normalize_wine_name(wine.grape_variety) if wine.grape_variety else None,
+        'original_name': name,
+        'normalized_name': normalized_name
+    }
+
+def calculate_identity_similarity(identity1: dict, identity2: dict) -> float:
+    """Calculate similarity between two wine identities."""
+    
+    similarities = []
+    
+    # 1. Core name word overlap (most important)
+    name_words1 = identity1['name_words']
+    name_words2 = identity2['name_words']
+    
+    if name_words1 and name_words2:
+        name_intersection = name_words1.intersection(name_words2)
+        name_union = name_words1.union(name_words2)
+        name_overlap = len(name_intersection) / len(name_union) if name_union else 0
+        similarities.append(('name_words', name_overlap, 0.4))
+        
+        # Boost if most key words match
+        if len(name_intersection) >= min(len(name_words1), len(name_words2)) * 0.7:
+            similarities.append(('name_boost', 1.0, 0.2))
+    
+    # 2. Producer word overlap
+    producer_words1 = identity1['producer_words']
+    producer_words2 = identity2['producer_words']
+    
+    if producer_words1 and producer_words2:
+        producer_intersection = producer_words1.intersection(producer_words2)
+        producer_union = producer_words1.union(producer_words2)
+        producer_overlap = len(producer_intersection) / len(producer_union) if producer_union else 0
+        similarities.append(('producer', producer_overlap, 0.2))
+    
+    # 3. Wine type/style matching
+    types1 = identity1['wine_types']
+    types2 = identity2['wine_types']
+    
+    if types1 and types2:
+        type_intersection = types1.intersection(types2)
+        if type_intersection:
+            similarities.append(('wine_types', 1.0, 0.15))
+    
+    # 4. Geographic matching
+    regions1 = identity1['regions']
+    regions2 = identity2['regions']
+    
+    if regions1 and regions2:
+        region_intersection = regions1.intersection(regions2)
+        if region_intersection:
+            similarities.append(('regions', 1.0, 0.1))
+    
+    # 5. Grape variety matching
+    grape1 = identity1['grape_variety']
+    grape2 = identity2['grape_variety']
+    
+    if grape1 and grape2 and grape1 == grape2:
+        similarities.append(('grape', 1.0, 0.05))
+    
+    # 6. Substring matching for different language versions
+    name1 = identity1['normalized_name']
+    name2 = identity2['normalized_name']
+    
+    if name1 and name2 and len(name1) > 5 and len(name2) > 5:
+        # Check if significant portions of names are contained in each other
+        longer, shorter = (name1, name2) if len(name1) > len(name2) else (name2, name1)
+        if len(shorter) > 0:
+            # Look for substring matches
+            words_shorter = set(shorter.split())
+            words_longer = set(longer.split())
+            word_containment = len(words_shorter.intersection(words_longer)) / len(words_shorter)
+            
+            if word_containment > 0.5:
+                similarities.append(('substring', word_containment, 0.1))
+    
+    # Calculate final score
+    if not similarities:
+        return 0.0
+    
+    total_weight = sum(weight for _, _, weight in similarities)
+    weighted_sum = sum(score * weight for _, score, weight in similarities)
+    
+    return weighted_sum / total_weight if total_weight > 0 else 0.0
+
+def calculate_keyword_overlap(wine1: WineInfo, wine2: WineInfo) -> float:
+    """Calculate keyword overlap between two wine names."""
+    keywords1 = extract_wine_keywords(wine1.name)
+    keywords2 = extract_wine_keywords(wine2.name)
+    
+    if not keywords1 or not keywords2:
+        return 0.0
+    
+    # Calculate Jaccard similarity (intersection over union)
+    intersection = keywords1.intersection(keywords2)
+    union = keywords1.union(keywords2)
+    
+    return len(intersection) / len(union) if union else 0.0
+
+def calculate_wine_similarity(wine1: WineInfo, wine2: WineInfo) -> float:
+    """Calculate similarity score between two wines (0.0 to 1.0) using identity-based matching."""
+    
+    # Extract wine identities
+    identity1 = extract_wine_identity(wine1)
+    identity2 = extract_wine_identity(wine2)
+    
+    # Use the new identity-based similarity
+    similarity = calculate_identity_similarity(identity1, identity2)
+    
+    # Additional very loose matching for edge cases
+    name1 = identity1['normalized_name']
+    name2 = identity2['normalized_name']
+    
+    # Very permissive matching for wine names
+    if name1 and name2:
+        # Split into words and check for any significant overlap
+        words1 = set(w for w in name1.split() if len(w) > 3)
+        words2 = set(w for w in name2.split() if len(w) > 3)
+        
+        if words1 and words2:
+            # If they share any meaningful words, consider them potentially similar
+            common_words = words1.intersection(words2)
+            if common_words:
+                word_similarity = len(common_words) / min(len(words1), len(words2))
+                # Boost similarity if they share key wine words
+                key_wine_terms = {'cremant', 'loire', 'champagne', 'chablis', 'bordeaux', 'burgundy', 'sancerre'}
+                if any(term in name1 or term in name2 for term in key_wine_terms):
+                    if common_words:
+                        similarity = max(similarity, word_similarity * 0.8)
+    
+    # Very permissive producer matching
+    if wine1.producer and wine2.producer:
+        prod1 = normalize_wine_name(wine1.producer)
+        prod2 = normalize_wine_name(wine2.producer)
+        
+        if prod1 and prod2:
+            # If producer names share any words, boost similarity
+            prod_words1 = set(w for w in prod1.split() if len(w) > 2)
+            prod_words2 = set(w for w in prod2.split() if len(w) > 2)
+            
+            if prod_words1.intersection(prod_words2):
+                similarity = max(similarity, 0.6)
+    
+    return min(1.0, similarity)
+
+def merge_wine_info(wine1: WineInfo, wine2: WineInfo) -> WineInfo:
+    """Merge information from two similar wines, preferring more complete data."""
+    
+    # Choose the better base wine (more complete information)
+    def count_fields(wine):
+        return sum(1 for field in [wine.producer, wine.country, wine.region, wine.grape_variety, 
+                                 wine.vintage, wine.price, wine.alcohol_content, wine.description] 
+                  if field)
+    
+    if count_fields(wine2) > count_fields(wine1):
+        primary, secondary = wine2, wine1
+    else:
+        primary, secondary = wine1, wine2
+    
+    # Start with the more complete wine
+    merged = WineInfo(
+        name=primary.name,
+        producer=primary.producer,
+        country=primary.country,
+        region=primary.region,
+        grape_variety=primary.grape_variety,
+        vintage=primary.vintage,
+        price=primary.price,
+        alcohol_content=primary.alcohol_content,
+        description=primary.description,
+        source_file=primary.source_file
+    )
+    
+    # Fill in missing information from secondary wine
+    if not merged.producer and secondary.producer:
+        merged.producer = secondary.producer
+    if not merged.country and secondary.country:
+        merged.country = secondary.country
+    if not merged.region and secondary.region:
+        merged.region = secondary.region
+    if not merged.grape_variety and secondary.grape_variety:
+        merged.grape_variety = secondary.grape_variety
+    if not merged.vintage and secondary.vintage:
+        merged.vintage = secondary.vintage
+    if not merged.price and secondary.price:
+        merged.price = secondary.price
+    if not merged.alcohol_content and secondary.alcohol_content:
+        merged.alcohol_content = secondary.alcohol_content
+    
+    # Merge descriptions
+    descriptions = []
+    if primary.description and primary.description.strip():
+        descriptions.append(primary.description.strip())
+    if secondary.description and secondary.description.strip() and secondary.description.strip() not in descriptions:
+        descriptions.append(secondary.description.strip())
+    merged.description = " | ".join(descriptions) if descriptions else None
+    
+    # Combine source files
+    sources = []
+    if wine1.source_file:
+        sources.append(wine1.source_file)
+    if wine2.source_file and wine2.source_file not in sources:
+        sources.append(wine2.source_file)
+    merged.source_file = ", ".join(sources)
+    
+    # Choose the better name (prefer the one with more detail or French over Japanese)
+    names_to_consider = [wine1.name, wine2.name]
+    # Prefer name with more information or specific characteristics
+    if len(wine2.name) > len(wine1.name) * 1.2:
+        merged.name = wine2.name
+    elif len(wine1.name) > len(wine2.name) * 1.2:
+        merged.name = wine1.name
+    else:
+        # If similar lengths, prefer the one with more wine-specific terms
+        wine_terms = ['cremant', 'brut', 'zero', 'blanc', 'rouge', 'reserve']
+        wine1_terms = sum(1 for term in wine_terms if term in wine1.name.lower())
+        wine2_terms = sum(1 for term in wine_terms if term in wine2.name.lower())
+        
+        if wine2_terms > wine1_terms:
+            merged.name = wine2.name
+        else:
+            merged.name = wine1.name
+    
+    return merged
+
+def deduplicate_wines(wines: List[WineInfo], similarity_threshold: float = 0.5, debug: bool = False) -> List[WineInfo]:
+    """Remove duplicate wines and merge similar ones."""
+    
+    if not wines:
+        return wines
+    
+    deduplicated = []
+    processed_indices = set()
+    merge_info = []
+    
+    for i, wine1 in enumerate(wines):
+        if i in processed_indices:
+            continue
+            
+        # Find similar wines
+        similar_wines = [wine1]
+        similar_indices = {i}
+        similarities_found = []
+        
+        for j, wine2 in enumerate(wines[i+1:], i+1):
+            if j in processed_indices:
+                continue
+                
+            similarity = calculate_wine_similarity(wine1, wine2)
+            
+            if debug and similarity > 0.3:  # Show potential matches for debugging
+                similarities_found.append({
+                    'wine1': wine1.name,
+                    'wine2': wine2.name,
+                    'similarity': similarity,
+                    'merged': similarity >= similarity_threshold
+                })
+            
+            if similarity >= similarity_threshold:
+                similar_wines.append(wine2)
+                similar_indices.add(j)
+        
+        # Merge all similar wines
+        merged_wine = similar_wines[0]
+        for similar_wine in similar_wines[1:]:
+            merged_wine = merge_wine_info(merged_wine, similar_wine)
+        
+        if len(similar_wines) > 1:
+            merge_info.append({
+                'final_name': merged_wine.name,
+                'merged_count': len(similar_wines),
+                'original_names': [w.name for w in similar_wines]
+            })
+        
+        deduplicated.append(merged_wine)
+        processed_indices.update(similar_indices)
+    
+    # Store debug info as function attribute for access
+    deduplicate_wines._debug_info = {
+        'similarities': similarities_found,
+        'merges': merge_info
+    }
+    
+    return deduplicated

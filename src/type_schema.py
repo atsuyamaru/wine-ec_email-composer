@@ -17,6 +17,7 @@ class WineInfo(BaseModel):
     price: Optional[str] = None
     alcohol_content: Optional[str] = None
     description: Optional[str] = None
+    source_file: Optional[str] = None
 
 class ParsedWineList(BaseModel):
     wines: List[WineInfo]
