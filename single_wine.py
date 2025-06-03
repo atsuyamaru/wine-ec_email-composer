@@ -1,5 +1,17 @@
 from openai import OpenAI
 import streamlit as st
+import sys
+import os
+
+# Add the src directory to the path
+sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
+
+try:
+    from src.pdf_processor import parse_wine_markdown
+except ImportError:
+    # Fallback import
+    sys.path.append('./src')
+    from pdf_processor import parse_wine_markdown
 
 
 # Initialize OpenAI Client
@@ -18,11 +30,51 @@ temperature = 0.3
 st.write("### Email Generator: Single Wine 🍷")
 st.write("")
 
-# Check for imported wines
+# Check for wine library and selected wine
+wine_library_available = 'wine_library' in st.session_state and st.session_state['wine_library']
+selected_wine_available = 'selected_wine_for_email' in st.session_state
 imported_wines_available = 'imported_wines' in st.session_state and st.session_state['imported_wines']['full_info']
 
-if imported_wines_available:
+if selected_wine_available:
+    selected_wine = st.session_state['selected_wine_for_email']
+    st.success(f"🍷 Selected wine: **{selected_wine.name}** (from wine library)")
+elif wine_library_available:
+    st.info(f"📚 Wine library available with {len(st.session_state['wine_library'])} wines! Go to PDF import page to select a wine or choose below.")
+elif imported_wines_available:
     st.info("🍷 You have imported wines available! You can select one below or enter manually.")
+
+# Markdown import section
+st.write("#### Import Wine Information from Markdown File")
+uploaded_md = st.file_uploader(
+    "Upload a markdown file with wine information", 
+    type="md",
+    help="Upload a .md file containing wine information (exported from PDF import page)"
+)
+
+# Initialize markdown wine data
+markdown_wine_data = None
+if uploaded_md is not None:
+    try:
+        # Read markdown content
+        markdown_content = uploaded_md.read().decode('utf-8')
+        
+        # Parse markdown
+        markdown_wine_data = parse_wine_markdown(markdown_content)
+        
+        if markdown_wine_data['name']:
+            st.success(f"✅ Successfully imported wine: {markdown_wine_data['name']}")
+            
+            # Show preview of imported data
+            with st.expander("📝 Imported Wine Information Preview"):
+                for field, value in markdown_wine_data.items():
+                    if value:
+                        st.write(f"**{field.replace('_', ' ').title()}:** {value}")
+        else:
+            st.warning("⚠️ No wine information found in the markdown file. Please check the format.")
+            markdown_wine_data = None
+    except Exception as e:
+        st.error(f"❌ Error reading markdown file: {str(e)}")
+        markdown_wine_data = None
 
 # Input Form
 st.write("#### Input Form to Generate Email Contents")
@@ -35,51 +87,93 @@ with st.form(key='ask_input_form'):
     # Wine Information
     st.write("##### Wine Information")
     
-    # Option to use imported wine
-    use_imported = False
-    selected_wine = None
+    # Options for data source
+    data_source = "manual"
+    form_selected_wine = None
+    
+    # Check available data sources
+    data_source_options = ["Manual entry"]
+    if selected_wine_available:
+        data_source_options.append("Selected wine from library")
+    if wine_library_available:
+        data_source_options.append("Choose from wine library")
     if imported_wines_available:
-        use_imported = st.checkbox("Use imported wine from PDF")
-        if use_imported:
+        data_source_options.append("PDF imported wine")
+    if markdown_wine_data:
+        data_source_options.append("Markdown file")
+    
+    if len(data_source_options) > 1:
+        source_choice = st.selectbox("Choose data source:", data_source_options)
+        
+        if source_choice == "Selected wine from library":
+            data_source = "selected_wine"
+            form_selected_wine = st.session_state['selected_wine_for_email']
+        elif source_choice == "Choose from wine library":
+            data_source = "wine_library"
+            wine_library_options = []
+            wine_library_wines = []
+            for wine_id, wine in st.session_state['wine_library'].items():
+                label = f"{wine.name}"
+                if wine.producer:
+                    label += f" ({wine.producer})"
+                wine_library_options.append(label)
+                wine_library_wines.append(wine)
+            
+            if wine_library_options:
+                selected_idx = st.selectbox("Select wine from library:", range(len(wine_library_options)), 
+                                          format_func=lambda x: wine_library_options[x])
+                form_selected_wine = wine_library_wines[selected_idx]
+        elif source_choice == "PDF imported wine":
+            data_source = "pdf"
             wine_options = [f"{wine.name} ({wine.producer or 'Unknown producer'})" 
                           for wine in st.session_state['imported_wines']['full_info']]
             selected_idx = st.selectbox("Select imported wine", range(len(wine_options)), 
                                       format_func=lambda x: wine_options[x])
-            selected_wine = st.session_state['imported_wines']['full_info'][selected_idx]
+            form_selected_wine = st.session_state['imported_wines']['full_info'][selected_idx]
+        elif source_choice == "Markdown file":
+            data_source = "markdown"
     
-    if use_imported and selected_wine:
-        # Pre-fill with imported wine data
-        wine_name = st.text_input(label="Wine Name", value=selected_wine.name or "")
-        producer = st.text_input(label="Producer", value=selected_wine.producer or "")
-        
-        # Try to map country
-        countries = ["France", "Italy", "Spain", "Germany", "Portugal", "America", "South Africa"]
-        default_country_idx = 0
-        if selected_wine.country:
-            for i, country in enumerate(countries):
-                if selected_wine.country.lower() in country.lower() or country.lower() in selected_wine.country.lower():
-                    default_country_idx = i
-                    break
-        
+    # Helper function to map country
+    def get_country_index(country_name, countries):
+        if not country_name:
+            return 0
+        for i, country in enumerate(countries):
+            if country_name.lower() in country.lower() or country.lower() in country_name.lower():
+                return i
+        return 0
+    
+    countries = ["France", "Italy", "Spain", "Germany", "Portugal", "America", "South Africa"]
+    
+    if (data_source in ["selected_wine", "wine_library"] and form_selected_wine) or (data_source == "pdf" and form_selected_wine):
+        # Pre-fill with wine library or PDF imported wine data
+        wine_name = st.text_input(label="Wine Name", value=form_selected_wine.name or "")
+        producer = st.text_input(label="Producer", value=form_selected_wine.producer or "")
+        default_country_idx = get_country_index(form_selected_wine.country, countries)
         wine_country = st.selectbox(label="Wine Country", options=countries, index=default_country_idx)
-        wine_cepage = st.text_input(label="Wine Cépage", value=selected_wine.grape_variety or "")
+        wine_cepage = st.text_input(label="Wine Cépage", value=form_selected_wine.grape_variety or "")
         
         # Show additional imported info
-        if selected_wine.description:
-            st.text_area("Additional Wine Information (from PDF)", value=selected_wine.description, disabled=True)
+        if form_selected_wine.description:
+            source_type = "Wine Library" if data_source in ["selected_wine", "wine_library"] else "PDF"
+            st.text_area(f"Additional Wine Information (from {source_type})", value=form_selected_wine.description, disabled=True)
+    
+    elif data_source == "markdown" and markdown_wine_data:
+        # Pre-fill with markdown data
+        wine_name = st.text_input(label="Wine Name", value=markdown_wine_data['name'] or "")
+        producer = st.text_input(label="Producer", value=markdown_wine_data['producer'] or "")
+        default_country_idx = get_country_index(markdown_wine_data['country'], countries)
+        wine_country = st.selectbox(label="Wine Country", options=countries, index=default_country_idx)
+        wine_cepage = st.text_input(label="Wine Cépage", value=markdown_wine_data['grape_variety'] or "")
+        
+        # Show additional imported info
+        if markdown_wine_data['description']:
+            st.text_area("Additional Wine Information (from Markdown)", value=markdown_wine_data['description'], disabled=True)
+    
     else:
         # Manual input
         wine_name = st.text_input(label="Wine Name")
         producer = st.text_input(label="Producer")
-        wine_country = st.selectbox(label="Wine Country", options=[
-        "France", 
-        "Italy", 
-        "Spain", 
-        "Germany", 
-        "Portugal",
-        "America",
-        "South Africa"
-        ])
+        wine_country = st.selectbox(label="Wine Country", options=countries)
         wine_cepage = st.text_input(label="Wine Cépage")
     
     submit = st.form_submit_button(label='Generate')

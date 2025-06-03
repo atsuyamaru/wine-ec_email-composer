@@ -654,3 +654,124 @@ def deduplicate_wines(wines: List[WineInfo], similarity_threshold: float = 0.5, 
     }
     
     return deduplicated
+
+def format_wines_to_markdown(wines: List[WineInfo]) -> str:
+    """Convert wine information to markdown format."""
+    if not wines:
+        return "# Wine Information\n\nNo wines selected."
+    
+    markdown_content = "# Selected Wines Information\n\n"
+    
+    for i, wine in enumerate(wines, 1):
+        markdown_content += f"## Wine {i}: {wine.name}\n\n"
+        
+        # Basic Information
+        if wine.producer:
+            markdown_content += f"**Producer:** {wine.producer}\n\n"
+        
+        if wine.country:
+            markdown_content += f"**Country:** {wine.country}\n\n"
+        
+        if wine.region:
+            markdown_content += f"**Region:** {wine.region}\n\n"
+        
+        if wine.grape_variety:
+            markdown_content += f"**Grape Variety:** {wine.grape_variety}\n\n"
+        
+        if wine.vintage:
+            markdown_content += f"**Vintage:** {wine.vintage}\n\n"
+        
+        if wine.price:
+            markdown_content += f"**Price:** {wine.price}\n\n"
+        
+        if wine.alcohol_content:
+            markdown_content += f"**Alcohol Content:** {wine.alcohol_content}\n\n"
+        
+        if wine.description:
+            markdown_content += f"**Description:**\n{wine.description}\n\n"
+        
+        # Source information
+        if wine.source_file:
+            markdown_content += f"**Source File(s):** {wine.source_file}\n\n"
+        
+        # Separator between wines
+        if i < len(wines):
+            markdown_content += "---\n\n"
+    
+    return markdown_content
+
+def parse_wine_markdown(markdown_content: str) -> dict:
+    """Parse markdown content and extract wine information."""
+    wine_data = {
+        'name': '',
+        'producer': '',
+        'country': '',
+        'region': '',
+        'grape_variety': '',
+        'vintage': '',
+        'price': '',
+        'alcohol_content': '',
+        'description': ''
+    }
+    
+    lines = markdown_content.split('\n')
+    current_field = None
+    description_lines = []
+    
+    for line in lines:
+        line = line.strip()
+        
+        # Extract wine name from header
+        if line.startswith('# ') or line.startswith('## '):
+            # Try to extract wine name from headers like "# Wine 1: Wine Name" or "## Wine Name"
+            if ':' in line:
+                wine_data['name'] = line.split(':', 1)[1].strip()
+            else:
+                # Remove header markers and use as name
+                wine_data['name'] = line.replace('#', '').strip()
+        
+        # Extract field information
+        elif line.startswith('**') and line.endswith('**') and ':' not in line:
+            # This is a field header like "**Description:**"
+            current_field = line.replace('*', '').replace(':', '').lower().replace(' ', '_')
+            if current_field == 'grape_variety':
+                current_field = 'grape_variety'
+            elif current_field == 'alcohol_content':
+                current_field = 'alcohol_content'
+        
+        elif line.startswith('**') and ':**' in line:
+            # This is a field with value like "**Producer:** Domain Name"
+            field_and_value = line.replace('*', '').split(':', 1)
+            if len(field_and_value) == 2:
+                field_name = field_and_value[0].strip().lower().replace(' ', '_')
+                field_value = field_and_value[1].strip()
+                
+                # Map field names
+                field_mapping = {
+                    'producer': 'producer',
+                    'country': 'country',
+                    'region': 'region',
+                    'grape_variety': 'grape_variety',
+                    'vintage': 'vintage',
+                    'price': 'price',
+                    'alcohol_content': 'alcohol_content'
+                }
+                
+                if field_name in field_mapping:
+                    wine_data[field_mapping[field_name]] = field_value
+            current_field = None
+        
+        elif current_field == 'description' and line and not line.startswith('**'):
+            # Collect description lines
+            description_lines.append(line)
+        
+        elif line and not line.startswith('**') and not line.startswith('#') and not line.startswith('---'):
+            # If we're in description mode, collect the line
+            if current_field == 'description':
+                description_lines.append(line)
+    
+    # Join description lines
+    if description_lines:
+        wine_data['description'] = '\n'.join(description_lines).strip()
+    
+    return wine_data

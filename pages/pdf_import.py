@@ -6,7 +6,7 @@ import os
 # Add the src directory to the path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from pdf_processor import extract_text_from_pdf, parse_wine_info_with_ai, format_wines_for_display, deduplicate_wines
+from pdf_processor import extract_text_from_pdf, parse_wine_info_with_ai, format_wines_for_display, deduplicate_wines, format_wines_to_markdown
 
 # Initialize OpenAI Client
 client = OpenAI()
@@ -169,70 +169,108 @@ if uploaded_files:
                     st.write(f"**{file_name}:**")
                     st.text_area(f"Text from {file_name}", text, height=150, disabled=True, key=f"text_{file_name}")
             
-            # Option to export as CSV
-            if st.button("Export All to CSV"):
-                import pandas as pd
-                
-                # Convert wines to DataFrame
-                wines_data = []
-                for wine in all_wines:
-                    wine_dict = wine.model_dump()
-                    wines_data.append(wine_dict)
-                
-                df = pd.DataFrame(wines_data)
-                
-                # Convert to CSV
-                csv = df.to_csv(index=False)
-                
-                # Create filename with timestamp
-                from datetime import datetime
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                
-                # Download button
-                st.download_button(
-                    label="Download Combined CSV",
-                    data=csv,
-                    file_name=f"wine_list_combined_{timestamp}.csv",
-                    mime="text/csv"
-                )
+            # Store wines in session state automatically
+            if 'wine_library' not in st.session_state:
+                st.session_state['wine_library'] = {}
             
-            # Option to use wines for email generation
-            st.write("#### Use for Email Generation")
-            st.write("Select wines to use for generating marketing emails:")
+            # Add all wines to the library with unique IDs
+            wines_added = 0
+            for wine in all_wines:
+                # Create unique ID for wine
+                wine_id = f"{wine.name}_{getattr(wine, 'source_file', 'unknown')}"
+                if wine_id not in st.session_state['wine_library']:
+                    st.session_state['wine_library'][wine_id] = wine
+                    wines_added += 1
             
-            selected_wines = []
-            for i, wine in enumerate(all_wines):
-                source = getattr(wine, 'source_file', 'Unknown')
-                label = f"{wine.name} (from {source})"
-                if st.checkbox(f"Use {label}", key=f"wine_{i}"):
-                    selected_wines.append(wine)
+            if wines_added > 0:
+                st.success(f"✅ Added {wines_added} wines to your wine library!")
             
-            if selected_wines and st.button("Store Selected Wines for Email Generation"):
-                # Create wine names list for email generation
-                wine_names = [wine.name for wine in selected_wines]
-                wine_details = []
+            # Export options - always visible
+            st.write("#### Export Options")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Export all wines as CSV
+                if st.button("📊 Export All as CSV"):
+                    import pandas as pd
+                    
+                    # Convert wines to DataFrame
+                    wines_data = []
+                    for wine in all_wines:
+                        wine_dict = wine.model_dump()
+                        wines_data.append(wine_dict)
+                    
+                    df = pd.DataFrame(wines_data)
+                    
+                    # Convert to CSV
+                    csv = df.to_csv(index=False)
+                    
+                    # Create filename with timestamp
+                    from datetime import datetime
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    
+                    # Download button
+                    st.download_button(
+                        label="Download Combined CSV",
+                        data=csv,
+                        file_name=f"wine_list_combined_{timestamp}.csv",
+                        mime="text/csv"
+                    )
+            
+            with col2:
+                # Show wine library status
+                total_wines_in_library = len(st.session_state.get('wine_library', {}))
+                st.info(f"📚 Wine Library: {total_wines_in_library} wines stored")
                 
-                for wine in selected_wines:
-                    details = f"Wine: {wine.name}"
-                    if wine.producer:
-                        details += f", Producer: {wine.producer}"
-                    if wine.country:
-                        details += f", Country: {wine.country}"
-                    if wine.grape_variety:
-                        details += f", Grape: {wine.grape_variety}"
-                    source = getattr(wine, 'source_file', 'Unknown')
-                    details += f" (Source: {source})"
-                    wine_details.append(details)
+                if st.button("🗑️ Clear Wine Library"):
+                    st.session_state['wine_library'] = {}
+                    st.success("Wine library cleared!")
+                    st.rerun()
+            
+            # Wine Library Management
+            st.write("#### Wine Library")
+            
+            if st.session_state.get('wine_library'):
+                st.write("Select wines to use for email generation:")
                 
-                # Store in session state for use in other pages
-                st.session_state['imported_wines'] = {
-                    'names': wine_names,
-                    'details': wine_details,
-                    'full_info': selected_wines
-                }
+                # Create columns for better layout
+                cols = st.columns(3)
+                selected_wine_ids = []
                 
-                st.success(f"✅ {len(selected_wines)} selected wines stored! You can now use them in the email generation pages.")
-                st.info("💡 Go to the 'Single Wine' or '6 bottles bundle' pages to generate emails with the imported wine data.")
+                for i, (wine_id, wine) in enumerate(st.session_state['wine_library'].items()):
+                    col_idx = i % 3
+                    with cols[col_idx]:
+                        source = getattr(wine, 'source_file', 'Unknown')
+                        label = f"{wine.name}"
+                        if wine.producer:
+                            label += f" ({wine.producer})"
+                        
+                        if st.button(f"🍷 Use: {label}", key=f"use_{wine_id}"):
+                            # Store selected wine for single wine page
+                            st.session_state['selected_wine_for_email'] = wine
+                            st.success(f"✅ Selected: {wine.name}")
+                            st.info("💡 Go to the 'Single Wine' page to generate email with this wine.")
+                
+                st.divider()
+                
+                # Show current selection
+                if 'selected_wine_for_email' in st.session_state:
+                    selected = st.session_state['selected_wine_for_email']
+                    st.write("**Currently Selected Wine:**")
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        st.write(f"🍷 **{selected.name}**")
+                        if selected.producer:
+                            st.write(f"Producer: {selected.producer}")
+                        if selected.country:
+                            st.write(f"Country: {selected.country}")
+                    with col2:
+                        if st.button("❌ Clear Selection"):
+                            del st.session_state['selected_wine_for_email']
+                            st.rerun()
+                
+            else:
+                st.info("📚 No wines in library yet. Upload PDFs above to add wines.")
         else:
             st.error("❌ No wines could be extracted from any of the uploaded files.")
     
