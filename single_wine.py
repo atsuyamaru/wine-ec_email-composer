@@ -10,8 +10,8 @@ client = OpenAI()
 past_email_contents_path = "./src/backstreet-mail-contents_2024-07-01.csv"
 
 ## OpenAI
-model = "gpt-4o-2024-11-20"
-temperature = 0.4
+model = "gpt-4.1"
+temperature = 0.3
 
 ## * Streamlit App
 # Tool Title
@@ -35,7 +35,9 @@ with st.form(key='ask_input_form'):
     "Italy", 
     "Spain", 
     "Germany", 
-    "Portugal"
+    "Portugal",
+    "America",
+    "South Africa"
     ])
     wine_cepage = st.text_input(label="Wine Cépage")
     # tasting_comments_onpage = st.text_area(label="Tasting Comments on the webpage")
@@ -78,7 +80,7 @@ if submit:
     ======
 
     ## Output Language: Japanese
-    Now, Write the email contents in Japanese.
+    Now, Write the email contents in Japanese. Use emoji following the previous reference.
     """
 
     # Execute the prompt

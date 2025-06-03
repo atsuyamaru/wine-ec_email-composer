@@ -38,6 +38,16 @@ if submit:
       next(f)
       previous_email_contents = f.read()
 
+    # * Monthly Concept
+    if monthly_concept is not None or monthly_concept != "":
+      monthly_concept_prompt = f"""
+      ======
+      ### Monthly Concept
+      {monthly_concept}
+      """
+    else:
+       monthly_concept_prompt = ""
+
     # * User Prompt reommending for a 6 bottles bundle monthly set
     system_prompt = f"""
     ## System Prompt
@@ -64,9 +74,8 @@ if submit:
     ## Wine Information in this time
     This email will be distributed at {distribute_date}.
     The wine information that you will recommend in this email is below. Especially, the key comments by our sommelier are important because these comments come from our sommelier in tasting party.
-    ======n
-    ### Monthly Concept
-    {monthly_concept}
+
+    {monthly_concept_prompt}
     ======
     ### Key Comments By Our Sommelier
     Comments are grouped by the wine bottles name. Not given all comments for each wine bottles, sometimes lack of comments for some wine bottles.
@@ -74,7 +83,9 @@ if submit:
     ======
 
     ## Output Language: Japanese
-    Now, Write the email contents in Japanese.
+
+    ## Instructions
+    Now, Write the email contents in Japanese. You do not need to explain what the "笹麩セレクション" is. It's better to mention the season, or about the specialities of the month: Distribution Date is {distribute_date}.
     """
 
     # Execute the prompt
