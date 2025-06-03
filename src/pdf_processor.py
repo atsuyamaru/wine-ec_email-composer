@@ -2,7 +2,7 @@ import pdfplumber
 import re
 from typing import List, Dict, Optional
 from openai import OpenAI
-from .type_schema import WineInfo, ParsedWineList
+from type_schema import WineInfo, ParsedWineList
 
 def extract_text_from_pdf(pdf_file) -> str:
     """Extract text from uploaded PDF file."""
@@ -18,10 +18,16 @@ def parse_wine_info_with_ai(text: str, client: OpenAI) -> ParsedWineList:
     """Use OpenAI to parse wine information from extracted text."""
     
     system_prompt = """
-    You are a wine expert. Extract wine information from the provided Japanese wine list text.
+    You are a wine expert specializing in parsing Japanese wine lists. Extract ONLY wine information from the provided text.
+    
+    IMPORTANT RULES:
+    1. Extract ONLY actual wines - ignore store information, addresses, contact details, or promotional text
+    2. Look for patterns like wine names followed by producer names, prices, or descriptions
+    3. Skip any text that appears to be store details, addresses, phone numbers, or general information
+    4. Each wine should have at minimum a name - if you can't identify a clear wine name, skip that entry
     
     For each wine, extract:
-    - name (ワイン名)
+    - name (ワイン名) - REQUIRED
     - producer (生産者)
     - country (国)
     - region (地域)
@@ -31,34 +37,43 @@ def parse_wine_info_with_ai(text: str, client: OpenAI) -> ParsedWineList:
     - alcohol_content (アルコール度数)
     - description (説明・特徴)
     
-    Return the data in JSON format as an array of wine objects.
-    If some information is not available, omit those fields.
+    Return ONLY valid JSON array format. If no wines can be identified, return an empty array [].
     """
     
     user_prompt = f"""
-    Please extract wine information from this Japanese wine list text:
+    Analyze this text and extract ONLY wine information. Ignore any store details, addresses, or non-wine content:
     
     {text}
     
-    Return only valid JSON array format like this:
+    Focus on identifying:
+    - Wine names (often in katakana/hiragana or with French/Italian names)
+    - Producer/winery names
+    - Countries/regions
+    - Grape varieties (セパージュ)
+    - Prices (円, ¥)
+    - Alcohol percentages (%)
+    - Vintage years
+    
+    Return only valid JSON array format. Example:
     [
         {{
-            "name": "ワイン名",
-            "producer": "生産者名",
-            "country": "国名",
-            "region": "地域名",
-            "grape_variety": "ブドウ品種",
-            "vintage": "年",
-            "price": "価格",
-            "alcohol_content": "アルコール度数",
-            "description": "説明"
+            "name": "シャブリ",
+            "producer": "ドメーヌ・ラロッシュ",
+            "country": "フランス",
+            "region": "ブルゴーニュ",
+            "grape_variety": "シャルドネ",
+            "vintage": "2021",
+            "price": "3,500円",
+            "alcohol_content": "13%"
         }}
     ]
+    
+    If no clear wines are found, return: []
     """
     
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-2024-11-20",
+            model="gpt-4.1-mini",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
