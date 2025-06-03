@@ -18,6 +18,12 @@ temperature = 0.4
 st.write("### Email Generator: 6 bottles bundle monthly set 📦")
 st.write("")
 
+# Check for imported wines
+imported_wines_available = 'imported_wines' in st.session_state and st.session_state['imported_wines']['full_info']
+
+if imported_wines_available:
+    st.info("🍷 You have imported wines available! You can use them below or enter manually.")
+
 # Input Form
 st.write("#### Input Form to Generate Email Contents")
 with st.form(key='ask_input_form'):
@@ -26,8 +32,35 @@ with st.form(key='ask_input_form'):
     key_comments = st.text_area(label="Key Comments in the tasting party")
     distribute_date = st.date_input(label="Email Distribute Date")
     st.divider()
+    
     st.write("##### Wine Information")
-    wine_bottles_name = st.text_area(label="Wine Bottles Name: Separate by comma or a line break.")
+    
+    # Option to use imported wines
+    use_imported = False
+    if imported_wines_available:
+        use_imported = st.checkbox("Use imported wines from PDF")
+        if use_imported:
+            st.write("Select wines from imported PDF:")
+            selected_wines = []
+            for i, wine in enumerate(st.session_state['imported_wines']['full_info']):
+                if st.checkbox(f"{wine.name} ({wine.producer or 'Unknown producer'})", key=f"pkg_wine_{i}"):
+                    selected_wines.append(wine.name)
+            
+            if selected_wines:
+                wine_bottles_name = st.text_area(
+                    label="Wine Bottles Name: Separate by comma or a line break.",
+                    value="\n".join(selected_wines)
+                )
+            else:
+                wine_bottles_name = st.text_area(
+                    label="Wine Bottles Name: Separate by comma or a line break.",
+                    placeholder="Select wines above or enter manually"
+                )
+        else:
+            wine_bottles_name = st.text_area(label="Wine Bottles Name: Separate by comma or a line break.")
+    else:
+        wine_bottles_name = st.text_area(label="Wine Bottles Name: Separate by comma or a line break.")
+    
     submit = st.form_submit_button(label='Generate')
 
 
