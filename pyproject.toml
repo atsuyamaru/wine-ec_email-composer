@@ -7,6 +7,7 @@ requires-python = ">=3.8"
 dependencies = [
     "openai>=1.61.0",
     "pydantic>=2.10.6",
+    "pymupdf>=1.24.0",
     "ruff>=0.9.4",
     "streamlit>=1.40.1",
 ]

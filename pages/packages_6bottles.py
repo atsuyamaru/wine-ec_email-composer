@@ -18,6 +18,20 @@ temperature = 0.4
 st.write("### Email Generator: 6 bottles bundle monthly set 📦")
 st.write("")
 
+# Navigation
+st.write("#### 📋 Available Tools")
+col1, col2, col3 = st.columns(3)
+with col1:
+    st.page_link("../single_wine.py", label="🍷 Single Wine", icon="🍷")
+    st.write("Generate email for a single wine")
+with col2:
+    st.write("📦 **6 Bottles Package** (Current)")
+    st.write("Generate email for 6-bottle bundle")
+with col3:
+    st.page_link("pdf_import.py", label="📄 PDF Import", icon="📄")
+    st.write("Import wines from PDF lists")
+st.divider()
+
 # Input Form
 st.write("#### Input Form to Generate Email Contents")
 with st.form(key='ask_input_form'):
