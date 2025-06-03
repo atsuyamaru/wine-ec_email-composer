@@ -81,17 +81,49 @@ if uploaded_files:
                 all_wines = deduplicate_wines(all_wines, similarity_threshold=threshold, debug=show_debug)
                 
             # Show debug information if requested
-            if show_debug and hasattr(deduplicate_wines, '_debug_info'):
-                debug_info = deduplicate_wines._debug_info
-                if debug_info.get('similarities'):
-                    with st.expander("🔍 Similarity Analysis (Debug)"):
-                        for sim in debug_info['similarities']:
-                            st.write(f"**Comparing:**")
-                            st.write(f"- Wine 1: {sim['wine1']}")
-                            st.write(f"- Wine 2: {sim['wine2']}")
-                            st.write(f"- Similarity: {sim['similarity']:.3f}")
-                            st.write(f"- Merged: {'✅ Yes' if sim['merged'] else '❌ No'}")
+            if show_debug:
+                if hasattr(deduplicate_wines, '_debug_info'):
+                    debug_info = deduplicate_wines._debug_info
+                    if debug_info.get('similarities'):
+                        with st.expander("🔍 Similarity Analysis (Debug)"):
+                            for sim in debug_info['similarities']:
+                                st.write(f"**Comparing:**")
+                                st.write(f"- Wine 1: {sim['wine1']}")
+                                st.write(f"- Wine 2: {sim['wine2']}")
+                                st.write(f"- Similarity: {sim['similarity']:.3f}")
+                                st.write(f"- Merged: {'✅ Yes' if sim['merged'] else '❌ No'}")
+                                st.write("---")
+                
+                # Show merge debug information
+                from pdf_processor import merge_wine_info
+                if hasattr(merge_wine_info, '_debug_merges') and merge_wine_info._debug_merges:
+                    with st.expander("🇯🇵 Japanese Priority Debug"):
+                        for merge in merge_wine_info._debug_merges:
+                            st.write(f"**Merging Process:**")
+                            st.write(f"- Wine 1: {merge['wine1_name']}")
+                            st.write(f"  - Japanese Score: {merge['wine1_jp_score']}")
+                            st.write(f"  - Has Japanese Name: {'✅' if merge['wine1_has_jp_name'] else '❌'}")
+                            st.write(f"- Wine 2: {merge['wine2_name']}")
+                            st.write(f"  - Japanese Score: {merge['wine2_jp_score']}")
+                            st.write(f"  - Has Japanese Name: {'✅' if merge['wine2_has_jp_name'] else '❌'}")
+                            st.write(f"- **Primary Chosen:** {merge['primary_chosen']}")
+                            st.write(f"- **Final Name:** {merge['final_name']}")
                             st.write("---")
+                
+                # Test Japanese detection
+                with st.expander("🧪 Test Japanese Detection"):
+                    test_names = [
+                        "Crémant de Loire Brut Zero NV",
+                        "クレマン・ド・ロワール ブリュット・ゼロ NV",
+                        "シャブリ",
+                        "Chablis",
+                        "ドメーヌ・ラロッシュ"
+                    ]
+                    
+                    from pdf_processor import contains_japanese
+                    for name in test_names:
+                        has_jp = contains_japanese(name)
+                        st.write(f"- '{name}': {'🇯🇵 Japanese' if has_jp else '🇫🇷 Non-Japanese'}")
             
             deduplicated_count = len(all_wines)
             duplicates_removed = original_count - deduplicated_count

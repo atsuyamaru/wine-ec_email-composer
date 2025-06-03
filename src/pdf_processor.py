@@ -315,6 +315,63 @@ def calculate_identity_similarity(identity1: dict, identity2: dict) -> float:
     
     return weighted_sum / total_weight if total_weight > 0 else 0.0
 
+def contains_japanese(text: str) -> bool:
+    """Check if text contains Japanese characters (hiragana, katakana, kanji)."""
+    if not text:
+        return False
+    
+    # Clean the text first - remove HTML entities and normalize
+    import html
+    text = html.unescape(text)  # Convert HTML entities like &nbsp; 
+    
+    # Japanese Unicode ranges - expanded for better coverage
+    japanese_ranges = [
+        (0x3040, 0x309F),  # Hiragana
+        (0x30A0, 0x30FF),  # Katakana
+        (0x4E00, 0x9FAF),  # CJK Unified Ideographs (Kanji)
+        (0x3400, 0x4DBF),  # CJK Extension A
+        (0xFF66, 0xFF9F),  # Half-width Katakana
+        (0x3000, 0x303F),  # CJK Symbols and Punctuation
+        (0xFF01, 0xFF60),  # Full-width ASCII variants
+    ]
+    
+    # Count Japanese characters
+    japanese_char_count = 0
+    total_chars = 0
+    
+    for char in text:
+        if char.isspace():
+            continue
+        total_chars += 1
+        char_code = ord(char)
+        for start, end in japanese_ranges:
+            if start <= char_code <= end:
+                japanese_char_count += 1
+                break
+    
+    # Return True if any Japanese characters found
+    return japanese_char_count > 0
+
+def get_japanese_content_score(wine: WineInfo) -> int:
+    """Calculate how much Japanese content a wine entry has with much higher priority for wine names."""
+    score = 0
+    
+    # Check each field for Japanese content with VERY high priority for wine name
+    fields_to_check = [
+        (wine.name, 20),          # Wine name is EXTREMELY important - much higher weight
+        (wine.producer, 3),       # Producer is important
+        (wine.description, 3),    # Description is important
+        (wine.region, 1),         # Region is somewhat important
+        (wine.country, 1),        # Country is somewhat important
+        (wine.grape_variety, 1),  # Grape variety is somewhat important
+    ]
+    
+    for field_value, weight in fields_to_check:
+        if field_value and contains_japanese(field_value):
+            score += weight
+    
+    return score
+
 def calculate_keyword_overlap(wine1: WineInfo, wine2: WineInfo) -> float:
     """Calculate keyword overlap between two wine names."""
     keywords1 = extract_wine_keywords(wine1.name)
@@ -376,18 +433,45 @@ def calculate_wine_similarity(wine1: WineInfo, wine2: WineInfo) -> float:
     return min(1.0, similarity)
 
 def merge_wine_info(wine1: WineInfo, wine2: WineInfo) -> WineInfo:
-    """Merge information from two similar wines, preferring more complete data."""
+    """Merge information from two similar wines with VERY strong Japanese content priority."""
     
-    # Choose the better base wine (more complete information)
+    # Calculate Japanese content scores
+    jp_score1 = get_japanese_content_score(wine1)
+    jp_score2 = get_japanese_content_score(wine2)
+    
+    # Debug: Store merge info for debugging
+    merge_debug = {
+        'wine1_name': wine1.name,
+        'wine2_name': wine2.name,
+        'wine1_jp_score': jp_score1,
+        'wine2_jp_score': jp_score2,
+        'wine1_has_jp_name': contains_japanese(wine1.name),
+        'wine2_has_jp_name': contains_japanese(wine2.name)
+    }
+    
+    # Helper function to count non-empty fields
     def count_fields(wine):
         return sum(1 for field in [wine.producer, wine.country, wine.region, wine.grape_variety, 
                                  wine.vintage, wine.price, wine.alcohol_content, wine.description] 
                   if field)
     
-    if count_fields(wine2) > count_fields(wine1):
-        primary, secondary = wine2, wine1
-    else:
+    # STRONGLY prioritize Japanese content - even a small amount beats non-Japanese
+    # Only use completeness if Japanese scores are exactly equal (both 0 or both same positive value)
+    if jp_score1 > 0 and jp_score2 == 0:
+        # wine1 has Japanese, wine2 doesn't - always choose wine1
         primary, secondary = wine1, wine2
+    elif jp_score2 > 0 and jp_score1 == 0:
+        # wine2 has Japanese, wine1 doesn't - always choose wine2
+        primary, secondary = wine2, wine1
+    elif jp_score1 != jp_score2:
+        # Both have Japanese but different amounts - choose higher score
+        primary, secondary = (wine1, wine2) if jp_score1 > jp_score2 else (wine2, wine1)
+    else:
+        # Japanese content is exactly equal (both 0 or same score) - use completeness
+        if count_fields(wine2) > count_fields(wine1):
+            primary, secondary = wine2, wine1
+        else:
+            primary, secondary = wine1, wine2
     
     # Start with the more complete wine
     merged = WineInfo(
@@ -403,15 +487,40 @@ def merge_wine_info(wine1: WineInfo, wine2: WineInfo) -> WineInfo:
         source_file=primary.source_file
     )
     
-    # Fill in missing information from secondary wine
-    if not merged.producer and secondary.producer:
-        merged.producer = secondary.producer
-    if not merged.country and secondary.country:
-        merged.country = secondary.country
-    if not merged.region and secondary.region:
-        merged.region = secondary.region
-    if not merged.grape_variety and secondary.grape_variety:
-        merged.grape_variety = secondary.grape_variety
+    # Fill in missing information from secondary wine, with VERY strong Japanese preference
+    def prefer_japanese_or_fill(primary_val, secondary_val):
+        """Choose between two values with ABSOLUTE preference for Japanese text."""
+        if not primary_val and secondary_val:
+            # Primary is empty - use secondary
+            return secondary_val
+        elif not secondary_val and primary_val:
+            # Secondary is empty - use primary
+            return primary_val
+        elif primary_val and secondary_val:
+            # Both exist - ALWAYS prefer Japanese text, no matter what
+            primary_has_jp = contains_japanese(primary_val)
+            secondary_has_jp = contains_japanese(secondary_val)
+            
+            if secondary_has_jp and not primary_has_jp:
+                # Secondary has Japanese, primary doesn't - always use secondary
+                return secondary_val
+            elif primary_has_jp and not secondary_has_jp:
+                # Primary has Japanese, secondary doesn't - always use primary
+                return primary_val
+            elif secondary_has_jp and primary_has_jp:
+                # Both have Japanese - prefer the longer/more detailed one
+                return secondary_val if len(secondary_val) > len(primary_val) else primary_val
+            else:
+                # Neither has Japanese - keep primary
+                return primary_val
+        return primary_val
+    
+    merged.producer = prefer_japanese_or_fill(merged.producer, secondary.producer)
+    merged.country = prefer_japanese_or_fill(merged.country, secondary.country)
+    merged.region = prefer_japanese_or_fill(merged.region, secondary.region)
+    merged.grape_variety = prefer_japanese_or_fill(merged.grape_variety, secondary.grape_variety)
+    
+    # For these fields, just fill if missing (no Japanese preference needed)
     if not merged.vintage and secondary.vintage:
         merged.vintage = secondary.vintage
     if not merged.price and secondary.price:
@@ -435,23 +544,50 @@ def merge_wine_info(wine1: WineInfo, wine2: WineInfo) -> WineInfo:
         sources.append(wine2.source_file)
     merged.source_file = ", ".join(sources)
     
-    # Choose the better name (prefer the one with more detail or French over Japanese)
-    names_to_consider = [wine1.name, wine2.name]
-    # Prefer name with more information or specific characteristics
-    if len(wine2.name) > len(wine1.name) * 1.2:
-        merged.name = wine2.name
-    elif len(wine1.name) > len(wine2.name) * 1.2:
+    # Store debug info
+    merge_debug['primary_chosen'] = 'wine1' if primary == wine1 else 'wine2'
+    merge_debug['final_name'] = merged.name
+    
+    # Store debug info for access
+    if not hasattr(merge_wine_info, '_debug_merges'):
+        merge_wine_info._debug_merges = []
+    merge_wine_info._debug_merges.append(merge_debug)
+    
+    # Choose the better name with EXTREMELY strong Japanese preference
+    wine1_has_japanese = contains_japanese(wine1.name)
+    wine2_has_japanese = contains_japanese(wine2.name)
+    
+    # ABSOLUTE Priority 1: Japanese text always wins - no exceptions!
+    if wine1_has_japanese and not wine2_has_japanese:
         merged.name = wine1.name
-    else:
-        # If similar lengths, prefer the one with more wine-specific terms
-        wine_terms = ['cremant', 'brut', 'zero', 'blanc', 'rouge', 'reserve']
-        wine1_terms = sum(1 for term in wine_terms if term in wine1.name.lower())
-        wine2_terms = sum(1 for term in wine_terms if term in wine2.name.lower())
-        
-        if wine2_terms > wine1_terms:
+    elif wine2_has_japanese and not wine1_has_japanese:
+        merged.name = wine2.name
+    elif wine1_has_japanese and wine2_has_japanese:
+        # Both have Japanese - prefer the longer/more detailed Japanese name
+        if len(wine1.name) > len(wine2.name):
+            merged.name = wine1.name
+        elif len(wine2.name) > len(wine1.name):
             merged.name = wine2.name
         else:
+            # Same length - keep primary wine's name
+            merged.name = primary.name
+    else:
+        # Neither has Japanese - use other factors
+        # Prefer name with more information
+        if len(wine2.name) > len(wine1.name) * 1.2:
+            merged.name = wine2.name
+        elif len(wine1.name) > len(wine2.name) * 1.2:
             merged.name = wine1.name
+        else:
+            # Similar lengths - prefer the one with more wine-specific terms
+            wine_terms = ['cremant', 'brut', 'zero', 'blanc', 'rouge', 'reserve']
+            wine1_terms = sum(1 for term in wine_terms if term in wine1.name.lower())
+            wine2_terms = sum(1 for term in wine_terms if term in wine2.name.lower())
+            
+            if wine2_terms > wine1_terms:
+                merged.name = wine2.name
+            else:
+                merged.name = wine1.name
     
     return merged
 
@@ -460,6 +596,10 @@ def deduplicate_wines(wines: List[WineInfo], similarity_threshold: float = 0.5, 
     
     if not wines:
         return wines
+    
+    # Clear previous debug info
+    if hasattr(merge_wine_info, '_debug_merges'):
+        merge_wine_info._debug_merges = []
     
     deduplicated = []
     processed_indices = set()
