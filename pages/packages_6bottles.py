@@ -19,7 +19,7 @@ client = OpenAI()
 
 ## * Settings
 # File Path
-past_email_contents_path = "./src/backstreet-mail-contents_2024-07-01.csv"
+past_email_contents_path = "./src/6bottles-mail-contents_2025-06-29.csv"
 
 ## OpenAI
 # Model and temperature will be set via UI controls
@@ -156,7 +156,7 @@ if submit:
     ## Output Language: Japanese
 
     ## Instructions
-    Now, Write the email contents in Japanese. You do not need to explain what the "笹麩セレクション" is. It's better to mention the season, or about the specialities of the month: Distribution Date is {distribute_date}.
+    Now, Write the email contents in Japanese. Use Emoji in the email contents, but not too many. You do not need to explain what the "佐々布セレクション" is. It's better to mention the season, or about the specialities of the month: Distribution Date is {distribute_date}.
     """
 
     # Execute the prompt

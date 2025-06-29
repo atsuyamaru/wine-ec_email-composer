@@ -12,7 +12,7 @@ from pdf_processor import extract_text_from_pdf, parse_wine_info_with_ai, format
 client = OpenAI()
 
 # Streamlit App
-st.write("### PDF Wine List Import 📄🍷")
+st.write("### PDF Wine List Import 📄")
 st.write("")
 
 st.write("#### Upload and Import Wine Lists from PDF")
