@@ -8,10 +8,12 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
 try:
     from src.pdf_processor import parse_wine_markdown
+    from src.models_config import get_model_options, get_model_id, DEFAULT_MODEL, is_reasoning_model
 except ImportError:
     # Fallback import
     sys.path.append('./src')
     from pdf_processor import parse_wine_markdown
+    from models_config import get_model_options, get_model_id, DEFAULT_MODEL, is_reasoning_model
 
 
 # Initialize OpenAI Client
@@ -22,12 +24,38 @@ client = OpenAI()
 past_email_contents_path = "./src/backstreet-mail-contents_2024-07-01.csv"
 
 ## OpenAI
-model = "gpt-4.1"
-temperature = 0.3
+# Model and temperature will be set via UI controls
 
 ## * Streamlit App
 # Tool Title
 st.write("### Email Generator: Single Wine 🍷")
+st.write("")
+
+# Model Selection
+st.write("#### Settings")
+selected_model_display = st.selectbox(
+    "Select LLM Model:",
+    options=get_model_options(),
+    index=get_model_options().index(DEFAULT_MODEL),
+    help="Choose the language model for generating email content"
+)
+selected_model = get_model_id(selected_model_display)
+
+# Temperature slider
+# Check if selected model is a reasoning model
+if is_reasoning_model(selected_model):
+    st.info("⚠️ Reasoning models (O3, O3-mini, O4-mini-deep-research) only support temperature=1.0")
+    temperature = 1.0
+    st.text("Temperature: 1.0 (fixed for reasoning models)")
+else:
+    temperature = st.slider(
+        "Temperature:",
+        min_value=0.0,
+        max_value=2.0,
+        value=0.4,
+        step=0.1,
+        help="Controls randomness: 0 = focused and deterministic, 2 = very creative and random"
+    )
 st.write("")
 
 # Check for wine library and selected wine
@@ -219,16 +247,12 @@ if submit:
     """
 
     # Execute the prompt
-    response = client.chat.completions.create(
-    model=model,
-    messages=[
-      {"role": "system", "content": system_prompt},
-      {"role": "user", "content": user_prompt}
-      ],
-      temperature=temperature
+    response = client.responses.create(  # type: ignore[attr-defined]
+        model=selected_model,
+        instructions=system_prompt,
+        input=user_prompt,
+        temperature=temperature,
     )
 
-    # Display the response
-    st.write(response.choices[0].message.content)
-    # st.divider()
-    # st.code(response.choices[0].message.content)
+    # Display the generated email content
+    st.write(response.output_text)
