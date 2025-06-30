@@ -61,6 +61,8 @@ elif uploaded_files:
     all_extracted_texts = {}
     
     try:
+        # Display threshold as checking
+        st.write(f"Similarity threshold: {threshold}")
         # Process each uploaded file
         for file_idx, uploaded_file in enumerate(uploaded_files):
             st.write(f"**Processing: {uploaded_file.name}**")
@@ -102,12 +104,73 @@ elif uploaded_files:
             # Debug option
             show_debug = st.checkbox("Show similarity debugging info", value=False)
             
+            # Test specific wine pairs for debugging
+            if st.checkbox("🧪 Test specific wine pairs", value=False):
+                st.write("**Testing known duplicate pairs:**")
+                
+                # Find some test pairs
+                from pdf_processor import calculate_wine_similarity
+                
+                test_pairs = [
+                    ("BONITURA", "ボニトゥラ"),
+                    ("CASA DE FONTE PEQUENA BONITURA", "ボニトゥラ"),
+                    ("Cotes de Gascogne", "コート・ド・ガスコーニュ"),
+                    ("Petit Chablis", "プティ・シャブリ"),
+                    ("Toscana Rosato", "トスカーナ・ロサート"),
+                    ("Alma de Chile", "アルマ・デ・チリ"),
+                ]
+                
+                for name1, name2 in test_pairs:
+                    # Find wines with these names
+                    wine1 = None
+                    wine2 = None
+                    
+                    for wine in all_wines:
+                        if name1.lower() in wine.name.lower():
+                            wine1 = wine
+                        if name2 in wine.name:
+                            wine2 = wine
+                    
+                    if wine1 and wine2:
+                        similarity = calculate_wine_similarity(wine1, wine2)
+                        st.write(f"- **{wine1.name}** vs **{wine2.name}**: {similarity:.3f}")
+                        if similarity >= threshold:
+                            st.success(f"  ✅ Should merge (similarity {similarity:.3f} >= threshold {threshold})")
+                        else:
+                            st.warning(f"  ❌ Won't merge (similarity {similarity:.3f} < threshold {threshold})")
+                    else:
+                        st.write(f"- {name1} vs {name2}: One or both wines not found")
+            
             # Add buttons for deduplication control
             col1, col2 = st.columns([2, 1])
             with col1:
                 if st.button("🔄 Run Deduplication", type="primary"):
+                    # Quick test of obvious duplicates first
+                    st.write("**Testing obvious duplicates:**")
+                    from pdf_processor import calculate_wine_similarity
+                    
+                    # Test identical names
+                    if len(all_wines) >= 2:
+                        wine1 = all_wines[0]  # BONITURA NV Pinot Grigio 2022
+                        wine2 = all_wines[1]  # BONITURA NV Pinot Grigio 2022
+                        sim_identical = calculate_wine_similarity(wine1, wine2)
+                        st.write(f"Identical wines similarity: {sim_identical:.3f}")
+                    
+                    # Test BONITURA variants
+                    bonitura_en = None
+                    bonitura_jp = None
+                    for wine in all_wines:
+                        if "BONITURA" in wine.name and not bonitura_en:
+                            bonitura_en = wine
+                        if "ボニトゥラ" in wine.name and not bonitura_jp:
+                            bonitura_jp = wine
+                    
+                    if bonitura_en and bonitura_jp:
+                        sim_bonitura = calculate_wine_similarity(bonitura_en, bonitura_jp)
+                        st.write(f"BONITURA EN/JP similarity: {sim_bonitura:.3f}")
+                    
                     with st.spinner("Removing duplicates and merging similar wines..."):
-                        deduplicated_wines = deduplicate_wines(all_wines.copy(), similarity_threshold=threshold, debug=show_debug)
+                        deduplicated_wines = deduplicate_wines(all_wines.copy(), similarity_threshold=threshold, debug=True)
                         
                     # Store deduplicated wines in session state
                     st.session_state['deduplicated_wines'] = deduplicated_wines
@@ -180,7 +243,7 @@ elif uploaded_files:
                             has_jp = contains_japanese(name)
                             st.write(f"- '{name}': {'🇯🇵 Japanese' if has_jp else '🇫🇷 Non-Japanese'}")
             else:
-                st.info("⚙️ Adjust the similarity threshold above and click 'Run Deduplication' to remove duplicates.")
+                st.info("⚙️ Adjust the similarity threshold above and click 'Run Deduplication' to remove duplicates, or go to Single Wine page to manually select and merge wines.")
         
         if all_wines:
             st.write(f"#### Total Extracted Wine Information ({len(all_wines)} wines)")

@@ -21,51 +21,60 @@ def parse_wine_info_with_ai(text: str, client: OpenAI) -> ParsedWineList:
     system_prompt = """
     You are a wine expert specializing in parsing Japanese wine lists. Extract ONLY wine information from the provided text.
     
-    IMPORTANT RULES:
+    CRITICAL RULES:
     1. Extract ONLY actual wines - ignore store information, addresses, contact details, or promotional text
-    2. Look for patterns like wine names followed by producer names, prices, or descriptions
-    3. Skip any text that appears to be store details, addresses, phone numbers, or general information
-    4. Each wine should have at minimum a name - if you can't identify a clear wine name, skip that entry
+    2. Each wine must be treated as a SEPARATE entity - do NOT mix information between different wines
+    3. WINE NAME PRIORITY: If both Japanese (katakana/hiragana) and English/French names exist for the same wine, ALWAYS use the Japanese name as the primary wine name
+    4. ONLY assign producer/details to a wine if they appear DIRECTLY associated with that specific wine
+    5. If a producer name appears elsewhere in the text but not clearly linked to the wine, leave producer field empty
+    6. When in doubt about producer association, leave it blank rather than guess
     
-    For each wine, extract:
-    - name (ワイン名) - REQUIRED
-    - producer (生産者)
-    - country (国)
-    - region (地域)
-    - grape_variety (ブドウ品種)
-    - vintage (ヴィンテージ)
-    - price (価格)
-    - alcohol_content (アルコール度数)
-    - description (説明・特徴)
+    WINE NAME EXTRACTION PRIORITY:
+    - FIRST PRIORITY: Japanese wine names in katakana/hiragana (e.g., "ボニトゥラ NV", "プティ・シャブリ")
+    - SECOND PRIORITY: Only use English/French names if no Japanese name is available
+    - If you see both "CASA DE FONTE PEQUENA BONITURA NV" and "ボニトゥラ NV" for the same wine, use "ボニトゥラ NV"
+    
+    For each wine, extract ONLY information that is CLEARLY associated with that specific wine:
+    - name (ワイン名) - REQUIRED, prefer Japanese names over English/French
+    - producer (生産者) - ONLY if explicitly linked to this wine
+    - country (国) - ONLY if explicitly linked to this wine  
+    - region (地域) - ONLY if explicitly linked to this wine
+    - grape_variety (ブドウ品種) - ONLY if explicitly linked to this wine
+    - vintage (ヴィンテージ) - ONLY if explicitly linked to this wine
+    - price (価格) - ONLY if explicitly linked to this wine
+    - alcohol_content (アルコール度数) - ONLY if explicitly linked to this wine
+    - description (説明・特徴) - ONLY if explicitly linked to this wine
+    
+    IMPORTANT: Prioritize Japanese wine names to make duplicate detection easier across different PDFs.
     
     Return ONLY valid JSON array format. If no wines can be identified, return an empty array [].
     """
     
     user_prompt = f"""
-    Analyze this text and extract ONLY wine information. Ignore any store details, addresses, or non-wine content:
+    Analyze this text and extract wine information. PRIORITIZE JAPANESE WINE NAMES over English/French names.
     
     {text}
     
-    Focus on identifying:
-    - Wine names (often in katakana/hiragana or with French/Italian names)
-    - Producer/winery names
-    - Countries/regions
-    - Grape varieties (セパージュ)
-    - Prices (円, ¥)
-    - Alcohol percentages (%)
-    - Vintage years
+    Rules for extraction:
+    1. ALWAYS prefer Japanese wine names (katakana/hiragana) over English/French names
+    2. If you see both "CASA DE FONTE PEQUENA BONITURA NV" and "ボニトゥラ NV", use "ボニトゥラ NV"
+    3. Only include producer if it's clearly stated for that specific wine
+    4. Do NOT assume producer information from other parts of the text
+    5. If multiple wines appear, keep their information completely separate
+    6. When in doubt about any field, leave it empty rather than guess
     
-    Return only valid JSON array format. Example:
+    Return only valid JSON array format. Example (showing Japanese name priority):
     [
         {{
-            "name": "シャブリ",
-            "producer": "ドメーヌ・ラロッシュ",
-            "country": "フランス",
-            "region": "ブルゴーニュ",
-            "grape_variety": "シャルドネ",
-            "vintage": "2021",
-            "price": "3,500円",
-            "alcohol_content": "13%"
+            "name": "ボニトゥラ NV",
+            "producer": "",
+            "country": "ポルトガル",
+            "region": "",
+            "grape_variety": "ロウレイロ主体",
+            "vintage": "NV",
+            "price": "",
+            "alcohol_content": "",
+            "description": "繊細な泡が美しく立ち上り..."
         }}
     ]
     
@@ -139,42 +148,60 @@ def normalize_wine_name(name: str) -> str:
     # Remove HTML tags if present
     normalized = re.sub(r'<[^>]+>', '', name)
     
-    # Normalize Unicode characters (remove accents, etc.)
-    normalized = unicodedata.normalize('NFKD', normalized)
-    normalized = ''.join(c for c in normalized if not unicodedata.combining(c))
-    
-    # Convert to lowercase and remove extra spaces
-    normalized = re.sub(r'\s+', ' ', normalized.strip().lower())
-    
-    # Remove common wine type suffixes and descriptors
-    wine_suffixes = [
-        r'\s+(nv|non vintage|brut|sec|demi-sec|doux|rouge|blanc|rose|vin|wine)$',
-        r'\s+(zero|dosage zero|extra brut|extra dry)$',
-        r'\s+(reserve|reserva|gran reserva|riserva)$',
-        r'\s+(cuvee|special|selection|premium|classic)$'
-    ]
-    for suffix in wine_suffixes:
-        normalized = re.sub(suffix, '', normalized)
-    
-    # Remove years (2-4 digits)
-    normalized = re.sub(r'\s+\d{2,4}$', '', normalized)
-    
-    # Remove common French/English articles and prepositions
-    articles = [
-        r'^(le|la|les|de|du|des|the|a|an|von|vom|zur|della|del|di|da)\s+',
-        r'\s+(de|du|des|von|vom|zur|della|del|di|da)\s+',
-    ]
-    for article in articles:
-        normalized = re.sub(article, ' ', normalized)
-    
-    # Remove common wine region indicators
-    normalized = re.sub(r'\s+(aoc|aop|doc|docg|igp|vdp|appellation)\s*', ' ', normalized)
+    # Handle Japanese vs non-Japanese text differently
+    if contains_japanese(name):
+        # For Japanese text, only remove extra spaces - don't change characters
+        normalized = re.sub(r'\s+', ' ', normalized.strip())
+        # Remove some common suffixes in Japanese
+        japanese_suffixes = [
+            r'\s*NV$', r'\s*[0-9]{4}$',  # Remove vintage years and NV
+            r'\s*赤$', r'\s*白$', r'\s*ロゼ$',  # Remove color indicators
+        ]
+        for suffix in japanese_suffixes:
+            normalized = re.sub(suffix, '', normalized)
+    else:
+        # For non-Japanese text, normalize accents and case
+        normalized = unicodedata.normalize('NFKD', normalized)
+        normalized = ''.join(c for c in normalized if not unicodedata.combining(c))
+        normalized = normalized.strip().lower()
+        
+        # Remove extra spaces
+        normalized = re.sub(r'\s+', ' ', normalized)
+        
+        # Remove common wine type suffixes and descriptors
+        wine_suffixes = [
+            r'\s+(nv|non vintage|brut|sec|demi-sec|doux|rouge|blanc|rose|vin|wine)$',
+            r'\s+(zero|dosage zero|extra brut|extra dry)$',
+            r'\s+(reserve|reserva|gran reserva|riserva)$',
+            r'\s+(cuvee|special|selection|premium|classic)$'
+        ]
+        for suffix in wine_suffixes:
+            normalized = re.sub(suffix, '', normalized)
+        
+        # Remove years (2-4 digits)
+        normalized = re.sub(r'\s+\d{2,4}$', '', normalized)
+        
+        # Remove common French/English articles and prepositions
+        articles = [
+            r'^(le|la|les|de|du|des|the|a|an|von|vom|zur|della|del|di|da)\s+',
+            r'\s+(de|du|des|von|vom|zur|della|del|di|da)\s+',
+        ]
+        for article in articles:
+            normalized = re.sub(article, ' ', normalized)
+        
+        # Remove common wine region indicators
+        normalized = re.sub(r'\s+(aoc|aop|doc|docg|igp|vdp|appellation)\s*', ' ', normalized)
     
     # Clean up multiple spaces
     normalized = re.sub(r'\s+', ' ', normalized.strip())
     
-    # Remove special characters and punctuation
-    normalized = re.sub(r'[^\w\s]', '', normalized)
+    # Handle special characters differently for Japanese vs non-Japanese
+    if contains_japanese(normalized):
+        # For Japanese, only remove minimal punctuation, keep ・ and ー
+        normalized = re.sub(r'[()（）\[\]【】""\'""]', '', normalized)
+    else:
+        # For non-Japanese, remove all punctuation except hyphens and dots
+        normalized = re.sub(r'[^\w\s\-\.]', '', normalized)
     
     return normalized
 
@@ -390,50 +417,215 @@ def calculate_keyword_overlap(wine1: WineInfo, wine2: WineInfo) -> float:
     return len(intersection) / len(union) if union else 0.0
 
 def calculate_wine_similarity(wine1: WineInfo, wine2: WineInfo) -> float:
-    """Calculate similarity score between two wines (0.0 to 1.0) using identity-based matching."""
+    """Calculate similarity score between two wines (0.0 to 1.0) using enhanced matching."""
     
     # Extract wine identities
     identity1 = extract_wine_identity(wine1)
     identity2 = extract_wine_identity(wine2)
     
-    # Use the new identity-based similarity
+    # Use the identity-based similarity as base
     similarity = calculate_identity_similarity(identity1, identity2)
     
-    # Additional very loose matching for edge cases
+    # Enhanced Japanese/English matching
     name1 = identity1['normalized_name']
     name2 = identity2['normalized_name']
     
-    # Very permissive matching for wine names
+    # Check for transliteration matches
+    transliteration_score = check_transliteration_similarity(wine1.name, wine2.name)
+    similarity = max(similarity, transliteration_score)
+    
+    # ENHANCED: General substring matching for producer+wine vs wine-only cases
+    substring_score = check_substring_similarity(wine1.name, wine2.name)
+    similarity = max(similarity, substring_score)
+    
+    # Enhanced word-based matching
     if name1 and name2:
-        # Split into words and check for any significant overlap
+        # Split into words and check for significant overlap
         words1 = set(w for w in name1.split() if len(w) > 3)
         words2 = set(w for w in name2.split() if len(w) > 3)
         
         if words1 and words2:
-            # If they share any meaningful words, consider them potentially similar
             common_words = words1.intersection(words2)
             if common_words:
                 word_similarity = len(common_words) / min(len(words1), len(words2))
-                # Boost similarity if they share key wine words
-                key_wine_terms = {'cremant', 'loire', 'champagne', 'chablis', 'bordeaux', 'burgundy', 'sancerre'}
+                # Boost similarity for wine-specific terms
+                key_wine_terms = {'cremant', 'loire', 'champagne', 'chablis', 'bordeaux', 'burgundy', 'sancerre', 'bonitura', 'tempranillo', 'cabernet', 'pinot', 'chardonnay'}
                 if any(term in name1 or term in name2 for term in key_wine_terms):
                     if common_words:
-                        similarity = max(similarity, word_similarity * 0.8)
+                        similarity = max(similarity, word_similarity * 0.9)
     
-    # Very permissive producer matching
+    # Enhanced producer matching
     if wine1.producer and wine2.producer:
         prod1 = normalize_wine_name(wine1.producer)
         prod2 = normalize_wine_name(wine2.producer)
         
         if prod1 and prod2:
-            # If producer names share any words, boost similarity
             prod_words1 = set(w for w in prod1.split() if len(w) > 2)
             prod_words2 = set(w for w in prod2.split() if len(w) > 2)
             
             if prod_words1.intersection(prod_words2):
-                similarity = max(similarity, 0.6)
+                similarity = max(similarity, 0.7)
     
     return min(1.0, similarity)
+
+def check_transliteration_similarity(name1: str, name2: str) -> float:
+    """Check similarity between potentially transliterated names (Japanese/English)."""
+    if not name1 or not name2:
+        return 0.0
+    
+    # Common wine name transliterations
+    transliteration_pairs = {
+        # Exact matches
+        'ボニトゥラ': ['bonitura'],
+        'ピノ・グリージョ': ['pinot grigio', 'pinot gris'],
+        'コート・ド・ガスコーニュ': ['cotes de gascogne', 'côtes de gascogne'],
+        'モンテ・アラヤ・テンプラニーリョ・ブランコ': ['monte araya tempranillo blanco'],
+        'プティ・シャブリ': ['petit chablis'],
+        'トスカーナ・ロサート': ['toscana rosato'],
+        'アルマ・デ・チリ': ['alma de chile'],
+        'ピノ・ノワール': ['pinot noir'],
+        'カベルネ・ソーヴィニヨン': ['cabernet sauvignon'],
+        'ラソン': ['razon'],
+        'シャルドネ': ['chardonnay'],
+        'メルロー': ['merlot'],
+        'リースリング': ['riesling'],
+        'ソーヴィニヨン・ブラン': ['sauvignon blanc'],
+        'シラー': ['syrah', 'shiraz'],
+        
+        # Partial matches for regions/terms
+        'フランス': ['france', 'french'],
+        'イタリア': ['italy', 'italian'],
+        'スペイン': ['spain', 'spanish'],
+        'ドイツ': ['germany', 'german'],
+        'アメリカ': ['america', 'american', 'usa'],
+        'カリフォルニア': ['california'],
+        'ナパ・ヴァレー': ['napa valley'],
+        'ソノマ': ['sonoma'],
+        'ボルドー': ['bordeaux'],
+        'ブルゴーニュ': ['burgundy', 'bourgogne'],
+        'ロワール': ['loire'],
+        'シャンパーニュ': ['champagne'],
+        'プロヴァンス': ['provence'],
+        'ピエモンテ': ['piemonte', 'piedmont'],
+        'トスカーナ': ['toscana', 'tuscany'],
+        'リオハ': ['rioja'],
+    }
+    
+    # Normalize names for comparison
+    norm1 = normalize_wine_name(name1)
+    norm2 = normalize_wine_name(name2)
+    
+    # ENHANCED: Check substring/contains matching first
+    # This handles cases like "CASA DE FONTE PEQUENA BONITURA NV" vs "ボニトゥラ"
+    for jp_name, en_variants in transliteration_pairs.items():
+        jp_norm = normalize_wine_name(jp_name)
+        
+        # Check substring contains (more loose matching)
+        for en_var in en_variants:
+            # Case 1: Japanese in name1, English in name2
+            if jp_norm in norm1 and en_var in norm2:
+                return 0.95
+            # Case 2: English in name1, Japanese in name2  
+            if en_var in norm1 and jp_norm in norm2:
+                return 0.95
+            # Case 3: One contains the other as substring
+            if jp_norm in norm2 and en_var in norm1:
+                return 0.95
+            if en_var in norm2 and jp_norm in norm1:
+                return 0.95
+    
+    # Check for partial matches with key wine terms
+    wine_terms_jp = ['ピノ', 'シャルドネ', 'カベルネ', 'メルロー', 'シラー', 'リースリング', 'ソーヴィニヨン']
+    wine_terms_en = ['pinot', 'chardonnay', 'cabernet', 'merlot', 'syrah', 'shiraz', 'riesling', 'sauvignon']
+    
+    for jp_term, en_term in zip(wine_terms_jp, wine_terms_en):
+        if jp_term in name1 and en_term in norm2:
+            return 0.8
+        if jp_term in name2 and en_term in norm1:
+            return 0.8
+    
+    # Check for phonetic similarities in romanized text
+    if contains_japanese(name1) != contains_japanese(name2):
+        # One is Japanese, one is not - check for romanization patterns
+        romanized_similarity = check_romanization_similarity(name1, name2)
+        if romanized_similarity > 0.7:
+            return romanized_similarity
+    
+    return 0.0
+
+def check_substring_similarity(name1: str, name2: str) -> float:
+    """Check if one wine name is contained within another (handles producer+wine vs wine-only)."""
+    if not name1 or not name2:
+        return 0.0
+    
+    # Normalize both names
+    norm1 = normalize_wine_name(name1)
+    norm2 = normalize_wine_name(name2)
+    
+    # Split into words for more flexible matching
+    words1 = set(word for word in norm1.split() if len(word) > 2)
+    words2 = set(word for word in norm2.split() if len(word) > 2)
+    
+    if not words1 or not words2:
+        return 0.0
+    
+    # Calculate overlap ratio
+    intersection = words1.intersection(words2)
+    smaller_set = min(len(words1), len(words2))
+    
+    if not intersection:
+        return 0.0
+    
+    overlap_ratio = len(intersection) / smaller_set
+    
+    # High similarity if significant overlap
+    if overlap_ratio >= 0.8:  # 80% of smaller set matches
+        return 0.9
+    elif overlap_ratio >= 0.6:  # 60% of smaller set matches
+        return 0.8
+    elif overlap_ratio >= 0.4:  # 40% of smaller set matches
+        return 0.7
+    
+    # Special case: Check if shorter name is completely contained in longer name
+    shorter = norm1 if len(norm1) < len(norm2) else norm2
+    longer = norm2 if len(norm1) < len(norm2) else norm1
+    
+    # Remove common words that don't help identification
+    common_words = {'wine', 'vin', 'vino', 'casa', 'de', 'del', 'della', 'du', 'grand', 'petit', 'reserve', 'reserva'}
+    shorter_words = [word for word in shorter.split() if word not in common_words and len(word) > 2]
+    
+    if shorter_words:
+        # Check if all meaningful words from shorter name appear in longer name
+        matches = sum(1 for word in shorter_words if word in longer)
+        if matches == len(shorter_words) and len(shorter_words) >= 1:
+            return 0.85  # Very high similarity for complete containment
+    
+    return 0.0
+
+def check_romanization_similarity(name1: str, name2: str) -> float:
+    """Check similarity based on romanization patterns."""
+    # Simple romanization check - look for similar consonant patterns
+    jp_name = name1 if contains_japanese(name1) else name2
+    en_name = name2 if contains_japanese(name1) else name1
+    
+    # Extract romanized approximations
+    romanization_map = {
+        'ボニトゥラ': 'bonitura',
+        'ピノ': 'pino',
+        'シャルドネ': 'sharudone',
+        'カベルネ': 'kaberune',
+        'メルロー': 'meruro',
+        'リースリング': 'riisuringu',
+    }
+    
+    jp_norm = normalize_wine_name(jp_name)
+    en_norm = normalize_wine_name(en_name)
+    
+    for jp_pattern, en_pattern in romanization_map.items():
+        if jp_pattern in jp_norm and en_pattern in en_norm:
+            return 0.9
+    
+    return 0.0
 
 def merge_wine_info(wine1: WineInfo, wine2: WineInfo) -> WineInfo:
     """Merge information from two similar wines with VERY strong Japanese content priority."""
