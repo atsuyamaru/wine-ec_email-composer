@@ -3,6 +3,9 @@ import streamlit as st
 import sys
 import os
 
+# Import authentication
+from auth import auth
+
 # Add the src directory to the path
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
@@ -13,6 +16,12 @@ except ImportError:
     sys.path.append('./src')
     from models_config import get_model_options, get_model_id, DEFAULT_MODEL, is_reasoning_model
 
+
+# Require authentication before accessing the app
+auth.require_auth()
+
+# Add logout button to sidebar
+auth.add_logout_button()
 
 # Initialize OpenAI Client
 client = OpenAI()

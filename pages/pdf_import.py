@@ -4,10 +4,20 @@ import sys
 import os
 from pathlib import Path
 
+# Import authentication
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from auth import auth
+
 # Add the src directory to the path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from pdf_processor import extract_text_from_pdf, parse_wine_info_with_ai, deduplicate_wines
+
+# Require authentication before accessing the app
+auth.require_auth()
+
+# Add logout button to sidebar
+auth.add_logout_button()
 
 # Initialize OpenAI Client
 client = OpenAI()
