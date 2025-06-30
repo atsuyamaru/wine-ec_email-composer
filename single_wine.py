@@ -7,12 +7,10 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
 try:
-    from src.pdf_processor import extract_text_from_pdf, parse_wine_info_with_ai
     from src.models_config import get_model_options, get_model_id, DEFAULT_MODEL, is_reasoning_model
 except ImportError:
     # Fallback import
     sys.path.append('./src')
-    from pdf_processor import extract_text_from_pdf, parse_wine_info_with_ai
     from models_config import get_model_options, get_model_id, DEFAULT_MODEL, is_reasoning_model
 
 
@@ -67,64 +65,77 @@ if selected_wine_available:
     selected_wine = st.session_state['selected_wine_for_email']
     st.success(f"🍷 Selected wine: **{selected_wine.name}** (from wine library)")
 elif wine_library_available:
-    st.info(f"📚 Wine library available with {len(st.session_state['wine_library'])} wines! Go to PDF import page to select a wine or choose below.")
+    st.info(f"📚 Wine library available with {len(st.session_state['wine_library'])} wines! Choose from wine library below or go to PDF import page to add more.")
 elif imported_wines_available:
     st.info("🍷 You have imported wines available! You can select one below or enter manually.")
 
-# PDF import section
-st.write("#### Import Wine Information from PDF")
-uploaded_pdf = st.file_uploader(
-    "Upload a PDF file with wine information", 
-    type="pdf",
-    help="Upload a PDF file containing wine list or wine information"
-)
+# Wine Selection Section (outside form for immediate updates)
+st.write("#### Wine Selection")
 
-# Initialize PDF wine data
-pdf_wine_data = None
-if uploaded_pdf is not None:
-    try:
-        # Extract text from PDF
-        with st.spinner("Extracting text from PDF..."):
-            extracted_text = extract_text_from_pdf(uploaded_pdf)
+# Initialize selected wine
+current_selected_wine = None
+
+# Check available data sources
+data_source_options = ["Manual entry"]
+if selected_wine_available:
+    data_source_options.append("Selected wine from library")
+if wine_library_available:
+    data_source_options.append("Choose from wine library")
+if imported_wines_available:
+    data_source_options.append("PDF imported wine")
+
+if len(data_source_options) > 1:
+    source_choice = st.selectbox("Choose data source:", data_source_options, key="wine_source")
+    
+    if source_choice == "Selected wine from library":
+        current_selected_wine = st.session_state['selected_wine_for_email']
+        st.info(f"Using selected wine: **{current_selected_wine.name}**")
+    elif source_choice == "Choose from wine library":
+        wine_library_options = []
+        wine_library_wines = []
+        for wine_id, wine in st.session_state['wine_library'].items():
+            label = f"{wine.name}"
+            if wine.producer:
+                label += f" ({wine.producer})"
+            wine_library_options.append(label)
+            wine_library_wines.append(wine)
         
-        if extracted_text.strip():
-            # Parse wine information
-            with st.spinner("Parsing wine information..."):
-                parsed_wines = parse_wine_info_with_ai(extracted_text, client)
+        if wine_library_options:
+            selected_idx = st.selectbox("Select wine from library:", range(len(wine_library_options)), 
+                                      format_func=lambda x: wine_library_options[x], key="library_selection")
+            current_selected_wine = wine_library_wines[selected_idx]
             
-            if parsed_wines.wines:
-                st.success(f"✅ Found {len(parsed_wines.wines)} wine(s) in the PDF!")
-                
-                # If multiple wines, let user select one
-                if len(parsed_wines.wines) > 1:
-                    wine_options = [f"{wine.name} ({wine.producer or 'Unknown producer'})" 
-                                  for wine in parsed_wines.wines]
-                    selected_idx = st.selectbox("Select a wine from the PDF:", range(len(wine_options)), 
-                                              format_func=lambda x: wine_options[x])
-                    pdf_wine_data = parsed_wines.wines[selected_idx]
-                else:
-                    pdf_wine_data = parsed_wines.wines[0]
-                
-                # Show preview of imported data
-                with st.expander("📝 Imported Wine Information Preview"):
-                    st.write(f"**Name:** {pdf_wine_data.name}")
-                    if pdf_wine_data.producer:
-                        st.write(f"**Producer:** {pdf_wine_data.producer}")
-                    if pdf_wine_data.country:
-                        st.write(f"**Country:** {pdf_wine_data.country}")
-                    if pdf_wine_data.grape_variety:
-                        st.write(f"**Grape Variety:** {pdf_wine_data.grape_variety}")
-                    if pdf_wine_data.description:
-                        st.write(f"**Description:** {pdf_wine_data.description}")
-            else:
-                st.warning("⚠️ No wine information found in the PDF. Please check the file.")
-                pdf_wine_data = None
-        else:
-            st.error("❌ No text could be extracted from the PDF.")
-            pdf_wine_data = None
-    except Exception as e:
-        st.error(f"❌ Error processing PDF: {str(e)}")
-        pdf_wine_data = None
+            # Show preview of selected wine
+            with st.expander("📝 Selected Wine Preview", expanded=True):
+                st.write(f"**Name:** {current_selected_wine.name}")
+                if current_selected_wine.producer:
+                    st.write(f"**Producer:** {current_selected_wine.producer}")
+                if current_selected_wine.country:
+                    st.write(f"**Country:** {current_selected_wine.country}")
+                if current_selected_wine.grape_variety:
+                    st.write(f"**Grape Variety:** {current_selected_wine.grape_variety}")
+                if current_selected_wine.description:
+                    st.write(f"**Description:** {current_selected_wine.description}")
+    elif source_choice == "PDF imported wine":
+        wine_options = [f"{wine.name} ({wine.producer or 'Unknown producer'})" 
+                      for wine in st.session_state['imported_wines']['full_info']]
+        selected_idx = st.selectbox("Select imported wine", range(len(wine_options)), 
+                                  format_func=lambda x: wine_options[x], key="pdf_selection")
+        current_selected_wine = st.session_state['imported_wines']['full_info'][selected_idx]
+        
+        # Show preview of selected wine
+        with st.expander("📝 Selected Wine Preview", expanded=True):
+            st.write(f"**Name:** {current_selected_wine.name}")
+            if current_selected_wine.producer:
+                st.write(f"**Producer:** {current_selected_wine.producer}")
+            if current_selected_wine.country:
+                st.write(f"**Country:** {current_selected_wine.country}")
+            if current_selected_wine.grape_variety:
+                st.write(f"**Grape Variety:** {current_selected_wine.grape_variety}")
+            if current_selected_wine.description:
+                st.write(f"**Description:** {current_selected_wine.description}")
+else:
+    source_choice = "Manual entry"
 
 # Input Form
 st.write("#### Input Form to Generate Email Contents")
@@ -137,52 +148,6 @@ with st.form(key='ask_input_form'):
     # Wine Information
     st.write("##### Wine Information")
     
-    # Options for data source
-    data_source = "manual"
-    form_selected_wine = None
-    
-    # Check available data sources
-    data_source_options = ["Manual entry"]
-    if selected_wine_available:
-        data_source_options.append("Selected wine from library")
-    if wine_library_available:
-        data_source_options.append("Choose from wine library")
-    if imported_wines_available:
-        data_source_options.append("PDF imported wine")
-    if pdf_wine_data:
-        data_source_options.append("PDF file")
-    
-    if len(data_source_options) > 1:
-        source_choice = st.selectbox("Choose data source:", data_source_options)
-        
-        if source_choice == "Selected wine from library":
-            data_source = "selected_wine"
-            form_selected_wine = st.session_state['selected_wine_for_email']
-        elif source_choice == "Choose from wine library":
-            data_source = "wine_library"
-            wine_library_options = []
-            wine_library_wines = []
-            for wine_id, wine in st.session_state['wine_library'].items():
-                label = f"{wine.name}"
-                if wine.producer:
-                    label += f" ({wine.producer})"
-                wine_library_options.append(label)
-                wine_library_wines.append(wine)
-            
-            if wine_library_options:
-                selected_idx = st.selectbox("Select wine from library:", range(len(wine_library_options)), 
-                                          format_func=lambda x: wine_library_options[x])
-                form_selected_wine = wine_library_wines[selected_idx]
-        elif source_choice == "PDF imported wine":
-            data_source = "pdf"
-            wine_options = [f"{wine.name} ({wine.producer or 'Unknown producer'})" 
-                          for wine in st.session_state['imported_wines']['full_info']]
-            selected_idx = st.selectbox("Select imported wine", range(len(wine_options)), 
-                                      format_func=lambda x: wine_options[x])
-            form_selected_wine = st.session_state['imported_wines']['full_info'][selected_idx]
-        elif source_choice == "PDF file":
-            data_source = "pdf_single"
-    
     # Helper function to map country
     def get_country_index(country_name, countries):
         if not country_name:
@@ -194,31 +159,18 @@ with st.form(key='ask_input_form'):
     
     countries = ["France", "Italy", "Spain", "Germany", "Portugal", "America", "South Africa"]
     
-    if (data_source in ["selected_wine", "wine_library"] and form_selected_wine) or (data_source == "pdf" and form_selected_wine):
-        # Pre-fill with wine library or PDF imported wine data
-        wine_name = st.text_input(label="Wine Name", value=form_selected_wine.name or "")
-        producer = st.text_input(label="Producer", value=form_selected_wine.producer or "")
-        default_country_idx = get_country_index(form_selected_wine.country, countries)
+    if current_selected_wine and source_choice != "Manual entry":
+        # Pre-fill with selected wine data
+        wine_name = st.text_input(label="Wine Name", value=current_selected_wine.name or "")
+        producer = st.text_input(label="Producer", value=current_selected_wine.producer or "")
+        default_country_idx = get_country_index(current_selected_wine.country, countries)
         wine_country = st.selectbox(label="Wine Country", options=countries, index=default_country_idx)
-        wine_cepage = st.text_input(label="Wine Cépage", value=form_selected_wine.grape_variety or "")
+        wine_cepage = st.text_input(label="Wine Cépage", value=current_selected_wine.grape_variety or "")
         
         # Show additional imported info
-        if form_selected_wine.description:
-            source_type = "Wine Library" if data_source in ["selected_wine", "wine_library"] else "PDF"
-            st.text_area(f"Additional Wine Information (from {source_type})", value=form_selected_wine.description, disabled=True)
-    
-    elif data_source == "pdf_single" and pdf_wine_data:
-        # Pre-fill with PDF data
-        wine_name = st.text_input(label="Wine Name", value=pdf_wine_data.name or "")
-        producer = st.text_input(label="Producer", value=pdf_wine_data.producer or "")
-        default_country_idx = get_country_index(pdf_wine_data.country, countries)
-        wine_country = st.selectbox(label="Wine Country", options=countries, index=default_country_idx)
-        wine_cepage = st.text_input(label="Wine Cépage", value=pdf_wine_data.grape_variety or "")
-        
-        # Show additional imported info
-        if pdf_wine_data.description:
-            st.text_area("Additional Wine Information (from PDF)", value=pdf_wine_data.description, disabled=True)
-    
+        if current_selected_wine.description:
+            source_type = "Wine Library" if source_choice == "Choose from wine library" else "PDF"
+            st.text_area(f"Additional Wine Information (from {source_type})", value=current_selected_wine.description, disabled=True)
     else:
         # Manual input
         wine_name = st.text_input(label="Wine Name")
