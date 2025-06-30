@@ -2,6 +2,7 @@ import streamlit as st
 from openai import OpenAI
 import sys
 import os
+from pathlib import Path
 
 # Add the src directory to the path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
@@ -15,8 +16,89 @@ client = OpenAI()
 st.write("### PDF Wine List Import 📄")
 st.write("")
 
-st.write("#### Upload and Import Wine Lists from PDF")
-st.write("Upload one or more PDF files containing wine list information. The system will automatically extract wine names and details.")
+st.write("#### Select Pre-uploaded PDFs or Upload Your Own")
+
+# Tab selection for PDF source
+tab1, tab2 = st.tabs(["📁 Pre-uploaded PDFs", "📤 Upload Your Own"])
+
+with tab1:
+    st.write("Select from the wine list PDFs already in the repository:")
+    
+    # Get the PDF directory path
+    pdf_dir = Path(__file__).parent.parent / "src" / "wine-list-pdf"
+    
+    # Find all PDF files recursively
+    pdf_files = list(pdf_dir.rglob("*.pdf"))
+    
+    if pdf_files:
+        # Group PDFs by directory
+        pdf_groups = {}
+        for pdf_file in pdf_files:
+            # Get relative path from wine-list-pdf directory
+            rel_path = pdf_file.relative_to(pdf_dir)
+            group = rel_path.parent.name if rel_path.parent.name != "." else "Root"
+            
+            if group not in pdf_groups:
+                pdf_groups[group] = []
+            pdf_groups[group].append(pdf_file)
+        
+        # Sort groups for consistent display
+        sorted_groups = sorted(pdf_groups.items(), reverse=True)  # Newest first
+        
+        # Multi-select for PDFs
+        selected_pdfs = []
+        for group_name, group_files in sorted_groups:
+            st.write(f"**{group_name}:**")
+            for pdf_file in sorted(group_files):
+                # Create a more user-friendly display name
+                display_name = pdf_file.name
+                if st.checkbox(display_name, key=f"pdf_{pdf_file}"):
+                    selected_pdfs.append(pdf_file)
+        
+        if selected_pdfs:
+            st.write(f"\n**Selected {len(selected_pdfs)} PDF(s) for processing**")
+            
+            # Process selected PDFs when button is clicked
+            if st.button("🔄 Process Selected PDFs", type="primary", key="process_preloaded"):
+                # Clear any existing upload data
+                uploaded_files = []
+                
+                # Convert Path objects to file-like objects for processing
+                for pdf_path in selected_pdfs:
+                    with open(pdf_path, 'rb') as f:
+                        # Create a file-like object with name attribute
+                        class PDFFile:
+                            def __init__(self, content, name):
+                                self.content = content
+                                self.name = name
+                            
+                            def read(self):
+                                return self.content
+                            
+                            def seek(self, pos):
+                                pass
+                        
+                        pdf_content = f.read()
+                        pdf_file = PDFFile(pdf_content, pdf_path.name)
+                        uploaded_files.append(pdf_file)
+                
+                # Store in session state to trigger processing
+                st.session_state['pdf_files_to_process'] = uploaded_files
+                st.rerun()
+    else:
+        st.warning("No pre-uploaded PDFs found in the repository.")
+
+with tab2:
+    st.write("Upload one or more PDF files containing wine list information. The system will automatically extract wine names and details.")
+    
+    # File uploader - now accepts multiple files
+    uploaded_files = st.file_uploader(
+        "Choose PDF files", 
+        type="pdf",
+        accept_multiple_files=True,
+        help="Upload one or more PDF files containing wine list information",
+        key="pdf_uploader"
+    )
 
 # Add threshold adjustment
 threshold = st.slider(
@@ -29,14 +111,10 @@ threshold = st.slider(
 )
 
 
-# File uploader - now accepts multiple files
-uploaded_files = st.file_uploader(
-    "Choose PDF files", 
-    type="pdf",
-    accept_multiple_files=True,
-    help="Upload one or more PDF files containing wine list information"
-)
-
+# Check if we have files to process from pre-uploaded selection
+if 'pdf_files_to_process' in st.session_state:
+    uploaded_files = st.session_state['pdf_files_to_process']
+    del st.session_state['pdf_files_to_process']  # Clear after use
 
 # Check if we have previously processed wines in session state
 if 'processed_wines' in st.session_state and st.session_state['processed_wines']:
