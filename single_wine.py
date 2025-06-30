@@ -7,12 +7,12 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
 try:
-    from src.pdf_processor import parse_wine_markdown
+    from src.pdf_processor import extract_text_from_pdf, parse_wine_info_with_ai
     from src.models_config import get_model_options, get_model_id, DEFAULT_MODEL, is_reasoning_model
 except ImportError:
     # Fallback import
     sys.path.append('./src')
-    from pdf_processor import parse_wine_markdown
+    from pdf_processor import extract_text_from_pdf, parse_wine_info_with_ai
     from models_config import get_model_options, get_model_id, DEFAULT_MODEL, is_reasoning_model
 
 
@@ -71,38 +71,60 @@ elif wine_library_available:
 elif imported_wines_available:
     st.info("🍷 You have imported wines available! You can select one below or enter manually.")
 
-# Markdown import section
-st.write("#### Import Wine Information from Markdown File")
-uploaded_md = st.file_uploader(
-    "Upload a markdown file with wine information", 
-    type="md",
-    help="Upload a .md file containing wine information (exported from PDF import page)"
+# PDF import section
+st.write("#### Import Wine Information from PDF")
+uploaded_pdf = st.file_uploader(
+    "Upload a PDF file with wine information", 
+    type="pdf",
+    help="Upload a PDF file containing wine list or wine information"
 )
 
-# Initialize markdown wine data
-markdown_wine_data = None
-if uploaded_md is not None:
+# Initialize PDF wine data
+pdf_wine_data = None
+if uploaded_pdf is not None:
     try:
-        # Read markdown content
-        markdown_content = uploaded_md.read().decode('utf-8')
+        # Extract text from PDF
+        with st.spinner("Extracting text from PDF..."):
+            extracted_text = extract_text_from_pdf(uploaded_pdf)
         
-        # Parse markdown
-        markdown_wine_data = parse_wine_markdown(markdown_content)
-        
-        if markdown_wine_data['name']:
-            st.success(f"✅ Successfully imported wine: {markdown_wine_data['name']}")
+        if extracted_text.strip():
+            # Parse wine information
+            with st.spinner("Parsing wine information..."):
+                parsed_wines = parse_wine_info_with_ai(extracted_text, client)
             
-            # Show preview of imported data
-            with st.expander("📝 Imported Wine Information Preview"):
-                for field, value in markdown_wine_data.items():
-                    if value:
-                        st.write(f"**{field.replace('_', ' ').title()}:** {value}")
+            if parsed_wines.wines:
+                st.success(f"✅ Found {len(parsed_wines.wines)} wine(s) in the PDF!")
+                
+                # If multiple wines, let user select one
+                if len(parsed_wines.wines) > 1:
+                    wine_options = [f"{wine.name} ({wine.producer or 'Unknown producer'})" 
+                                  for wine in parsed_wines.wines]
+                    selected_idx = st.selectbox("Select a wine from the PDF:", range(len(wine_options)), 
+                                              format_func=lambda x: wine_options[x])
+                    pdf_wine_data = parsed_wines.wines[selected_idx]
+                else:
+                    pdf_wine_data = parsed_wines.wines[0]
+                
+                # Show preview of imported data
+                with st.expander("📝 Imported Wine Information Preview"):
+                    st.write(f"**Name:** {pdf_wine_data.name}")
+                    if pdf_wine_data.producer:
+                        st.write(f"**Producer:** {pdf_wine_data.producer}")
+                    if pdf_wine_data.country:
+                        st.write(f"**Country:** {pdf_wine_data.country}")
+                    if pdf_wine_data.grape_variety:
+                        st.write(f"**Grape Variety:** {pdf_wine_data.grape_variety}")
+                    if pdf_wine_data.description:
+                        st.write(f"**Description:** {pdf_wine_data.description}")
+            else:
+                st.warning("⚠️ No wine information found in the PDF. Please check the file.")
+                pdf_wine_data = None
         else:
-            st.warning("⚠️ No wine information found in the markdown file. Please check the format.")
-            markdown_wine_data = None
+            st.error("❌ No text could be extracted from the PDF.")
+            pdf_wine_data = None
     except Exception as e:
-        st.error(f"❌ Error reading markdown file: {str(e)}")
-        markdown_wine_data = None
+        st.error(f"❌ Error processing PDF: {str(e)}")
+        pdf_wine_data = None
 
 # Input Form
 st.write("#### Input Form to Generate Email Contents")
@@ -127,8 +149,8 @@ with st.form(key='ask_input_form'):
         data_source_options.append("Choose from wine library")
     if imported_wines_available:
         data_source_options.append("PDF imported wine")
-    if markdown_wine_data:
-        data_source_options.append("Markdown file")
+    if pdf_wine_data:
+        data_source_options.append("PDF file")
     
     if len(data_source_options) > 1:
         source_choice = st.selectbox("Choose data source:", data_source_options)
@@ -158,8 +180,8 @@ with st.form(key='ask_input_form'):
             selected_idx = st.selectbox("Select imported wine", range(len(wine_options)), 
                                       format_func=lambda x: wine_options[x])
             form_selected_wine = st.session_state['imported_wines']['full_info'][selected_idx]
-        elif source_choice == "Markdown file":
-            data_source = "markdown"
+        elif source_choice == "PDF file":
+            data_source = "pdf_single"
     
     # Helper function to map country
     def get_country_index(country_name, countries):
@@ -185,17 +207,17 @@ with st.form(key='ask_input_form'):
             source_type = "Wine Library" if data_source in ["selected_wine", "wine_library"] else "PDF"
             st.text_area(f"Additional Wine Information (from {source_type})", value=form_selected_wine.description, disabled=True)
     
-    elif data_source == "markdown" and markdown_wine_data:
-        # Pre-fill with markdown data
-        wine_name = st.text_input(label="Wine Name", value=markdown_wine_data['name'] or "")
-        producer = st.text_input(label="Producer", value=markdown_wine_data['producer'] or "")
-        default_country_idx = get_country_index(markdown_wine_data['country'], countries)
+    elif data_source == "pdf_single" and pdf_wine_data:
+        # Pre-fill with PDF data
+        wine_name = st.text_input(label="Wine Name", value=pdf_wine_data.name or "")
+        producer = st.text_input(label="Producer", value=pdf_wine_data.producer or "")
+        default_country_idx = get_country_index(pdf_wine_data.country, countries)
         wine_country = st.selectbox(label="Wine Country", options=countries, index=default_country_idx)
-        wine_cepage = st.text_input(label="Wine Cépage", value=markdown_wine_data['grape_variety'] or "")
+        wine_cepage = st.text_input(label="Wine Cépage", value=pdf_wine_data.grape_variety or "")
         
         # Show additional imported info
-        if markdown_wine_data['description']:
-            st.text_area("Additional Wine Information (from Markdown)", value=markdown_wine_data['description'], disabled=True)
+        if pdf_wine_data.description:
+            st.text_area("Additional Wine Information (from PDF)", value=pdf_wine_data.description, disabled=True)
     
     else:
         # Manual input
@@ -216,7 +238,7 @@ if submit:
 
     
     # Define the Prompt
-    system_prompt = f"""
+    system_prompt = """
     ## System Prompt
     You are a wine sommelier. Write the following four email contents in Japanese as a email marketing for wine EC: email-title, preview-text, introduction-latter-part, editor's-note.
     """

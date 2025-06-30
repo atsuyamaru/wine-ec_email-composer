@@ -120,7 +120,7 @@ if submit:
        monthly_concept_prompt = ""
 
     # * User Prompt reommending for a 6 bottles bundle monthly set
-    system_prompt = f"""
+    system_prompt = """
     ## System Prompt
     You are a wine sommelier. Write the following four email contents in Japanese as a email marketing for wine EC: email-title, preview-text, introduction-latter-part, editor's-note.
 

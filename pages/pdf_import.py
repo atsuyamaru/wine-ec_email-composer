@@ -6,7 +6,7 @@ import os
 # Add the src directory to the path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from pdf_processor import extract_text_from_pdf, parse_wine_info_with_ai, format_wines_for_display, deduplicate_wines, format_wines_to_markdown
+from pdf_processor import extract_text_from_pdf, parse_wine_info_with_ai, deduplicate_wines
 
 # Initialize OpenAI Client
 client = OpenAI()
@@ -87,7 +87,7 @@ if uploaded_files:
                     if debug_info.get('similarities'):
                         with st.expander("🔍 Similarity Analysis (Debug)"):
                             for sim in debug_info['similarities']:
-                                st.write(f"**Comparing:**")
+                                st.write("**Comparing:**")
                                 st.write(f"- Wine 1: {sim['wine1']}")
                                 st.write(f"- Wine 2: {sim['wine2']}")
                                 st.write(f"- Similarity: {sim['similarity']:.3f}")
@@ -99,7 +99,7 @@ if uploaded_files:
                 if hasattr(merge_wine_info, '_debug_merges') and merge_wine_info._debug_merges:
                     with st.expander("🇯🇵 Japanese Priority Debug"):
                         for merge in merge_wine_info._debug_merges:
-                            st.write(f"**Merging Process:**")
+                            st.write("**Merging Process:**")
                             st.write(f"- Wine 1: {merge['wine1_name']}")
                             st.write(f"  - Japanese Score: {merge['wine1_jp_score']}")
                             st.write(f"  - Has Japanese Name: {'✅' if merge['wine1_has_jp_name'] else '❌'}")
@@ -181,6 +181,12 @@ if uploaded_files:
                 if wine_id not in st.session_state['wine_library']:
                     st.session_state['wine_library'][wine_id] = wine
                     wines_added += 1
+            
+            # Also store in imported_wines format for compatibility with 6bottles page
+            st.session_state['imported_wines'] = {
+                'names': [wine.name for wine in all_wines],
+                'full_info': all_wines
+            }
             
             if wines_added > 0:
                 st.success(f"✅ Added {wines_added} wines to your wine library!")

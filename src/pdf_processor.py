@@ -1,9 +1,8 @@
 import pdfplumber
 import re
-from typing import List, Dict, Optional
+from typing import List
 from openai import OpenAI
 from type_schema import WineInfo, ParsedWineList
-from difflib import SequenceMatcher
 import unicodedata
 
 def extract_text_from_pdf(pdf_file) -> str:
@@ -374,8 +373,12 @@ def get_japanese_content_score(wine: WineInfo) -> int:
 
 def calculate_keyword_overlap(wine1: WineInfo, wine2: WineInfo) -> float:
     """Calculate keyword overlap between two wine names."""
-    keywords1 = extract_wine_keywords(wine1.name)
-    keywords2 = extract_wine_keywords(wine2.name)
+    # Extract keywords from wine names using the identity extraction logic
+    identity1 = extract_wine_identity(wine1)
+    identity2 = extract_wine_identity(wine2)
+    
+    keywords1 = identity1['name_words']
+    keywords2 = identity2['name_words']
     
     if not keywords1 or not keywords2:
         return 0.0
