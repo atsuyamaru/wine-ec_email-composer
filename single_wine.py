@@ -11,10 +11,12 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
 try:
     from src.models_config import get_model_options, get_model_id, DEFAULT_MODEL, is_reasoning_model
+    from src.wine_merger import merge_wines, format_wine_preview, get_wine_summary
 except ImportError:
     # Fallback import
     sys.path.append('./src')
     from models_config import get_model_options, get_model_id, DEFAULT_MODEL, is_reasoning_model
+    from wine_merger import merge_wines, format_wine_preview, get_wine_summary
 
 
 # Require authentication before accessing the app
@@ -35,7 +37,7 @@ past_email_contents_path = "./src/backstreet-mail-contents_2024-07-01.csv"
 
 ## * Streamlit App
 # Tool Title
-st.write("### Email Generator: Single Wine 🍷")
+st.write("### Email Generator: Wine Selection 🍷")
 st.write("")
 
 # Model Selection
@@ -65,93 +67,115 @@ else:
     )
 st.write("")
 
-# Check for wine library and selected wine
+# Wine Selection Section
+st.write("#### Wine Selection")
+
+# Check for available wine sources
 wine_library_available = 'wine_library' in st.session_state and st.session_state['wine_library']
 selected_wine_available = 'selected_wine_for_email' in st.session_state
 imported_wines_available = 'imported_wines' in st.session_state and st.session_state['imported_wines']['full_info']
 
-# Wine Selection Section (outside form for immediate updates)
-st.write("#### Wine Selection")
-
-# Initialize selected wine
+# Initialize
 current_selected_wine = None
+selected_wines = []
+all_wines = []
 
-# Determine which selection method to use
+# Collect all available wines
+if wine_library_available:
+    for wine_id, wine in st.session_state['wine_library'].items():
+        all_wines.append(wine)
+
+if imported_wines_available and 'wine_library' not in st.session_state:
+    for wine in st.session_state['imported_wines']['full_info']:
+        all_wines.append(wine)
+
+# Wine selection mode
 if selected_wine_available:
-    # Use pre-selected wine from PDF import page
+    # Pre-selected wine from PDF import
     current_selected_wine = st.session_state['selected_wine_for_email']
-    st.info(f"Using selected wine: **{current_selected_wine.name}**")
-    col1, col2 = st.columns([4, 1])
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.success(f"🍷 **{current_selected_wine.name}** ({current_selected_wine.producer or 'Unknown'})")
     with col2:
-        if st.button("❌ Clear Selection"):
+        if st.button("Clear", type="secondary"):
             del st.session_state['selected_wine_for_email']
             st.rerun()
+elif all_wines:
+    # Selection mode toggle
+    use_library = st.radio(
+        "Wine source:", 
+        ["From Wine Library", "Manual Input"], 
+        horizontal=True,
+        key="wine_source_mode"
+    )
     
-    # Show preview of selected wine
-    with st.expander("📝 Selected Wine Preview", expanded=True):
-        st.write(f"**Name:** {current_selected_wine.name}")
-        if current_selected_wine.producer:
-            st.write(f"**Producer:** {current_selected_wine.producer}")
-        if current_selected_wine.country:
-            st.write(f"**Country:** {current_selected_wine.country}")
-        if current_selected_wine.grape_variety:
-            st.write(f"**Grape Variety:** {current_selected_wine.grape_variety}")
-        if current_selected_wine.description:
-            st.write(f"**Description:** {current_selected_wine.description}")
-            
-elif wine_library_available or imported_wines_available:
-    # Show wine selection dropdown
-    all_wines = []
-    wine_labels = []
-    
-    # Add wines from wine library
-    if wine_library_available:
-        for wine_id, wine in st.session_state['wine_library'].items():
-            label = f"{wine.name}"
-            if wine.producer:
-                label += f" ({wine.producer})"
-            wine_labels.append(label)
-            all_wines.append(wine)
-    
-    # Add wines from imported_wines (legacy)
-    if imported_wines_available and 'wine_library' not in st.session_state:
-        for wine in st.session_state['imported_wines']['full_info']:
-            label = f"{wine.name} ({wine.producer or 'Unknown producer'})"
-            wine_labels.append(label)
-            all_wines.append(wine)
-    
-    if all_wines:
-        selected_idx = st.selectbox(
-            "Select wine from library:", 
-            range(len(all_wines)), 
-            format_func=lambda x: wine_labels[x], 
-            key="wine_selection"
+    if use_library == "From Wine Library":
+        # Wine selection mode
+        selection_mode = st.radio(
+            "Number of wines:",
+            ["Single Wine", "Two Wines"],
+            horizontal=True,
+            key="wine_count_mode"
         )
-        current_selected_wine = all_wines[selected_idx]
         
-        # Show preview of selected wine
-        with st.expander("📝 Selected Wine Preview", expanded=True):
-            st.write(f"**Name:** {current_selected_wine.name}")
-            if current_selected_wine.producer:
-                st.write(f"**Producer:** {current_selected_wine.producer}")
-            if current_selected_wine.country:
-                st.write(f"**Country:** {current_selected_wine.country}")
-            if current_selected_wine.grape_variety:
-                st.write(f"**Grape Variety:** {current_selected_wine.grape_variety}")
-            if current_selected_wine.description:
-                st.write(f"**Description:** {current_selected_wine.description}")
+        wine_options = [f"{wine.name} ({wine.producer or 'Unknown'})" for wine in all_wines]
+        
+        if selection_mode == "Single Wine":
+            # Single wine selection
+            selected_idx = st.selectbox(
+                "Select wine:", 
+                range(len(all_wines)), 
+                format_func=lambda x: wine_options[x],
+                key="wine_dropdown_single"
+            )
+            selected_wines = [all_wines[selected_idx]]
+        else:
+            # Two wine selection
+            col1, col2 = st.columns(2)
+            with col1:
+                first_idx = st.selectbox(
+                    "First wine:", 
+                    range(len(all_wines)), 
+                    format_func=lambda x: wine_options[x],
+                    key="wine_dropdown_first"
+                )
+            with col2:
+                # Filter out the first selected wine from second dropdown
+                available_second = [i for i in range(len(all_wines)) if i != first_idx]
+                if available_second:
+                    second_idx_pos = st.selectbox(
+                        "Second wine:", 
+                        range(len(available_second)), 
+                        format_func=lambda x: wine_options[available_second[x]],
+                        key="wine_dropdown_second"
+                    )
+                    second_idx = available_second[second_idx_pos]
+                    selected_wines = [all_wines[first_idx], all_wines[second_idx]]
+                else:
+                    st.warning("Need at least 2 wines in library for two-wine selection")
+                    selected_wines = [all_wines[first_idx]]
+        
+        # Merge wine information
+        if selected_wines:
+            merged_wine = merge_wines(selected_wines)
+            current_selected_wine = selected_wines[0]  # For backward compatibility
+            
+            # Display wine summary
+            st.success(get_wine_summary(merged_wine))
+            st.caption(f"📍 {format_wine_preview(merged_wine)}")
 else:
-    st.info("💡 Enter wine information manually below, or go to PDF Import page to import wines from a PDF.")
+    st.info("💡 No wines in library. Enter wine information manually below.")
 
 # Input Form
-st.write("#### Input Form to Generate Email Contents")
+st.write("#### Email Generation")
 with st.form(key='ask_input_form'):
-    st.write("##### Key Comments and Distribute Date")
-    key_comments = st.text_area(label="Key Comments in the tasting party")
-    distribute_date = st.date_input(label="Email Distribute Date")
+    # Key Comments and Date
+    key_comments = st.text_area("Key Comments from Tasting Party")
+    distribute_date = st.date_input("Email Distribution Date")
+    
     st.divider()
     
-    # Wine Information
+    # Wine Information Section
     st.write("##### Wine Information")
     
     # Helper function to map country
@@ -165,25 +189,60 @@ with st.form(key='ask_input_form'):
     
     countries = ["France", "Italy", "Spain", "Germany", "Portugal", "America", "South Africa"]
     
-    if current_selected_wine:
-        # Pre-fill with selected wine data
-        wine_name = st.text_input(label="Wine Name", value=current_selected_wine.name or "")
-        producer = st.text_input(label="Producer", value=current_selected_wine.producer or "")
-        default_country_idx = get_country_index(current_selected_wine.country, countries)
-        wine_country = st.selectbox(label="Wine Country", options=countries, index=default_country_idx)
-        wine_cepage = st.text_input(label="Wine Cépage", value=current_selected_wine.grape_variety or "")
-        
-        # Show additional imported info
-        if current_selected_wine.description:
-            st.text_area("Additional Wine Information (from Wine Library)", value=current_selected_wine.description, disabled=True)
-    else:
-        # Manual input
-        wine_name = st.text_input(label="Wine Name")
-        producer = st.text_input(label="Producer")
-        wine_country = st.selectbox(label="Wine Country", options=countries)
-        wine_cepage = st.text_input(label="Wine Cépage")
+    # Determine if we should use manual input or wine library
+    manual_input = False
+    if all_wines and 'wine_source_mode' in st.session_state:
+        manual_input = st.session_state['wine_source_mode'] == "Manual Input"
+    elif not current_selected_wine:
+        manual_input = True
     
-    submit = st.form_submit_button(label='Generate')
+    if manual_input:
+        # Manual wine input
+        wine_name = st.text_input("Wine Name")
+        producer = st.text_input("Producer")
+        wine_country = st.selectbox("Wine Country", options=countries)
+        wine_cepage = st.text_input("Wine Cépage")
+    else:
+        # Use merged wine information
+        if selected_wines:
+            merged_wine = merge_wines(selected_wines)
+            wine_name = st.text_input("Wine Name(s)", value=merged_wine.names)
+            producer = st.text_input("Producer(s)", value=merged_wine.producers)
+            
+            # For countries, try to map the merged value or use first wine's country
+            merged_countries = merged_wine.countries
+            if merged_countries:
+                # Try to find a match in the country list
+                default_country_idx = get_country_index(merged_countries.split(' & ')[0], countries)
+            else:
+                default_country_idx = 0
+            wine_country = st.selectbox("Wine Country", options=countries, index=default_country_idx)
+            
+            wine_cepage = st.text_input("Wine Cépage", value=merged_wine.grape_varieties)
+            
+            # Show additional info from library if available
+            if merged_wine.descriptions:
+                with st.expander("📝 Additional Info from Wine Library"):
+                    st.write(merged_wine.descriptions)
+        elif current_selected_wine:
+            # Fallback for backward compatibility
+            wine_name = st.text_input("Wine Name", value=current_selected_wine.name or "")
+            producer = st.text_input("Producer", value=current_selected_wine.producer or "")
+            default_country_idx = get_country_index(current_selected_wine.country, countries)
+            wine_country = st.selectbox("Wine Country", options=countries, index=default_country_idx)
+            wine_cepage = st.text_input("Wine Cépage", value=current_selected_wine.grape_variety or "")
+            
+            if current_selected_wine.description:
+                with st.expander("📝 Additional Info from Wine Library"):
+                    st.write(current_selected_wine.description)
+        else:
+            # Fallback to manual input if no wine selected
+            wine_name = st.text_input("Wine Name")
+            producer = st.text_input("Producer")
+            wine_country = st.selectbox("Wine Country", options=countries)
+            wine_cepage = st.text_input("Wine Cépage")
+    
+    submit = st.form_submit_button("🚀 Generate Email", type="primary")
 
 
 if submit:
@@ -200,7 +259,10 @@ if submit:
     You are a wine sommelier. Write the following four email contents in Japanese as a email marketing for wine EC: email-title, preview-text, introduction-latter-part, editor's-note.
     """
 
-    # * User Prompt reommending for a single wine
+    # Determine wine count for prompt
+    wine_count_text = "single wine" if not selected_wines or len(selected_wines) == 1 else "two wines"
+    
+    # * User Prompt recommending for wine(s)
     user_prompt = f"""
     ## Past Email Contents
     When writing, You can refer to the past email contents as below:
@@ -209,20 +271,21 @@ if submit:
 
     ## Wine Information in this time
     This email will be distributed at {distribute_date}.
-    The wine information that you will recommend in this email is below. Especially, the key comments by our sommelier are important because these comments come from our sommelier in tasting party.
+    The wine information that you will recommend in this email is for {wine_count_text}. Especially, the key comments by our sommelier are important because these comments come from our sommelier in tasting party.
     ======
     ### Key Comments By Our Sommelier
     Key Comments By Our Sommelier: {key_comments}
 
     ### Wine Information
-    Wine Name: {wine_name},
-    Producer: {producer},
+    Wine Name(s): {wine_name},
+    Producer(s): {producer},
     Wine Country: {wine_country},
     Wine Cépage: {wine_cepage},
     ======
 
     ## Output Language: Japanese
     Now, Write the email contents in Japanese. Use emoji following the previous reference.
+    {"If recommending two wines, please structure the content to highlight both wines appropriately." if wine_count_text == "two wines" else ""}
     """
 
     # Execute the prompt
