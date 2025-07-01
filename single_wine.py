@@ -114,6 +114,7 @@ elif all_wines:
         selection_mode = st.radio(
             "Number of wines:",
             ["Single Wine", "Two Wines"],
+            index=1,  # Default to "Two Wines"
             horizontal=True,
             key="wine_count_mode"
         )
@@ -178,16 +179,7 @@ with st.form(key='ask_input_form'):
     # Wine Information Section
     st.write("##### Wine Information")
     
-    # Helper function to map country
-    def get_country_index(country_name, countries):
-        if not country_name:
-            return 0
-        for i, country in enumerate(countries):
-            if country_name.lower() in country.lower() or country.lower() in country_name.lower():
-                return i
-        return 0
-    
-    countries = ["France", "Italy", "Spain", "Germany", "Portugal", "America", "South Africa"]
+
     
     # Determine if we should use manual input or wine library
     manual_input = False
@@ -200,7 +192,7 @@ with st.form(key='ask_input_form'):
         # Manual wine input
         wine_name = st.text_input("Wine Name")
         producer = st.text_input("Producer")
-        wine_country = st.selectbox("Wine Country", options=countries)
+        wine_country = st.text_input("Wine Country", placeholder="e.g., France, Italy, Spain")
         wine_cepage = st.text_input("Wine Cépage")
     else:
         # Use merged wine information
@@ -209,14 +201,10 @@ with st.form(key='ask_input_form'):
             wine_name = st.text_input("Wine Name(s)", value=merged_wine.names)
             producer = st.text_input("Producer(s)", value=merged_wine.producers)
             
-            # For countries, try to map the merged value or use first wine's country
+            # For countries, directly use the merged country information
             merged_countries = merged_wine.countries
-            if merged_countries:
-                # Try to find a match in the country list
-                default_country_idx = get_country_index(merged_countries.split(' & ')[0], countries)
-            else:
-                default_country_idx = 0
-            wine_country = st.selectbox("Wine Country", options=countries, index=default_country_idx)
+            wine_country = st.text_input("Wine Country", value=merged_countries or "", 
+                                       help="Automatically populated from selected wines")
             
             wine_cepage = st.text_input("Wine Cépage", value=merged_wine.grape_varieties)
             
@@ -228,8 +216,7 @@ with st.form(key='ask_input_form'):
             # Fallback for backward compatibility
             wine_name = st.text_input("Wine Name", value=current_selected_wine.name or "")
             producer = st.text_input("Producer", value=current_selected_wine.producer or "")
-            default_country_idx = get_country_index(current_selected_wine.country, countries)
-            wine_country = st.selectbox("Wine Country", options=countries, index=default_country_idx)
+            wine_country = st.text_input("Wine Country", value=current_selected_wine.country or "")
             wine_cepage = st.text_input("Wine Cépage", value=current_selected_wine.grape_variety or "")
             
             if current_selected_wine.description:
@@ -239,7 +226,7 @@ with st.form(key='ask_input_form'):
             # Fallback to manual input if no wine selected
             wine_name = st.text_input("Wine Name")
             producer = st.text_input("Producer")
-            wine_country = st.selectbox("Wine Country", options=countries)
+            wine_country = st.text_input("Wine Country", placeholder="e.g., France, Italy, Spain")
             wine_cepage = st.text_input("Wine Cépage")
     
     submit = st.form_submit_button("🚀 Generate Email", type="primary")

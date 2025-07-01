@@ -57,8 +57,8 @@ def merge_wines(wines: List) -> MergedWineInfo:
         # Two wines - merge with appropriate formatting
         wine1, wine2 = wines[0], wines[1]
         
-        # Merge names
-        names = _merge_field([wine1.name, wine2.name], " & ")
+        # Merge names with smart deduplication
+        names = _merge_names([wine1.name, wine2.name])
         
         # Merge producers
         producers = _merge_field([wine1.producer, wine2.producer], " / ")
@@ -89,6 +89,65 @@ def merge_wines(wines: List) -> MergedWineInfo:
             descriptions=descriptions,
             wine_count=2
         )
+
+
+def _merge_names(names: List[Optional[str]]) -> str:
+    """
+    Merge wine names with smart deduplication.
+    If names are similar (one contains the other), choose the longer name.
+    Otherwise, concatenate with " & ".
+    
+    Args:
+        names: List of wine names (may contain None)
+        
+    Returns:
+        str: Merged name
+    """
+    # Filter out None and empty values
+    clean_names = [name.strip() for name in names if name and name.strip()]
+    
+    if not clean_names:
+        return ""
+    
+    if len(clean_names) == 1:
+        return clean_names[0]
+    
+    name1, name2 = clean_names[0], clean_names[1]
+    
+    # Check if one name contains the other (case-insensitive)
+    name1_lower = name1.lower()
+    name2_lower = name2.lower()
+    
+    # If name1 contains name2, use name1 (longer)
+    if name2_lower in name1_lower and name1_lower != name2_lower:
+        return name1
+    
+    # If name2 contains name1, use name2 (longer)
+    if name1_lower in name2_lower and name1_lower != name2_lower:
+        return name2
+    
+    # Check for common wine name patterns (base name + vintage/variation)
+    # Remove common suffixes/prefixes to find base names
+    def get_base_name(name):
+        # Remove common wine suffixes and variations
+        base = name.lower()
+        # Remove years (4 digits)
+        import re
+        base = re.sub(r'\b\d{4}\b', '', base)
+        # Remove common wine terms
+        for term in ['nv', 'non vintage', 'vintage', 'reserve', 'special', 'cuvee', 'blanc', 'rouge']:
+            base = base.replace(term, '')
+        return base.strip()
+    
+    base1 = get_base_name(name1)
+    base2 = get_base_name(name2)
+    
+    # If base names are very similar, choose the longer original name
+    if base1 and base2 and (base1 in base2 or base2 in base1):
+        return name1 if len(name1) >= len(name2) else name2
+    
+    # Otherwise, concatenate with " & "
+    return f"{name1} & {name2}"
 
 
 def _merge_field(values: List[Optional[str]], separator: str) -> str:
