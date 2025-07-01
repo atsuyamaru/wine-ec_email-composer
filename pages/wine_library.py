@@ -153,48 +153,38 @@ else:
             # Card view
             for i, wine in enumerate(filtered_wines):
                 with st.container():
-                    col1, col2 = st.columns([4, 1])
-                    
-                    with col1:
-                        # Wine card
-                        with st.expander(f"🍷 {wine.name}", expanded=False):
-                            col_left, col_right = st.columns(2)
+                    # Wine card
+                    with st.expander(f"🍷 {wine.name}", expanded=False):
+                        col_left, col_right = st.columns(2)
+                        
+                        with col_left:
+                            if wine.producer:
+                                st.write(f"**Producer:** {wine.producer}")
+                            if wine.country:
+                                st.write(f"**Country:** {wine.country}")
+                            if wine.region:
+                                st.write(f"**Region:** {wine.region}")
+                            if wine.grape_variety:
+                                st.write(f"**Grape Variety:** {wine.grape_variety}")
+                        
+                        with col_right:
+                            if wine.vintage:
+                                st.write(f"**Vintage:** {wine.vintage}")
+                            if wine.price:
+                                st.write(f"**Price:** {wine.price}")
+                            if wine.alcohol_content:
+                                st.write(f"**Alcohol:** {wine.alcohol_content}")
                             
-                            with col_left:
-                                if wine.producer:
-                                    st.write(f"**Producer:** {wine.producer}")
-                                if wine.country:
-                                    st.write(f"**Country:** {wine.country}")
-                                if wine.region:
-                                    st.write(f"**Region:** {wine.region}")
-                                if wine.grape_variety:
-                                    st.write(f"**Grape Variety:** {wine.grape_variety}")
-                            
-                            with col_right:
-                                if wine.vintage:
-                                    st.write(f"**Vintage:** {wine.vintage}")
-                                if wine.price:
-                                    st.write(f"**Price:** {wine.price}")
-                                if wine.alcohol_content:
-                                    st.write(f"**Alcohol:** {wine.alcohol_content}")
-                                
-                                # Source info
-                                source_file = getattr(wine, 'source_file', 'Unknown')
-                                if ',' in source_file:
-                                    st.info(f"🔗 **Merged from:** {source_file}")
-                                else:
-                                    st.info(f"📄 **Source:** {source_file}")
-                            
-                            if wine.description:
-                                st.write("**Description:**")
-                                st.write(wine.description)
-                    
-                    with col2:
-                        # Action buttons
-                        if st.button("📧 Use for Email", key=f"email_{i}"):
-                            st.session_state['selected_wine_for_email'] = wine
-                            st.success("✅ Wine selected for email generation!")
-                            st.info("💡 Go to 'Single Wine' page to create email.")
+                            # Source info
+                            source_file = getattr(wine, 'source_file', 'Unknown')
+                            if ',' in source_file:
+                                st.info(f"🔗 **Merged from:** {source_file}")
+                            else:
+                                st.info(f"📄 **Source:** {source_file}")
+                        
+                        if wine.description:
+                            st.write("**Description:**")
+                            st.write(wine.description)
                 
                 st.write("")  # Add spacing
         
@@ -207,34 +197,24 @@ else:
                     "Producer": wine.producer or "-",
                     "Country": wine.country or "-", 
                     "Grape Variety": wine.grape_variety or "-",
-                    "Source": filtered_sources[i],
-                    "Action": f"Use_{i}"  # For button reference
+                    "Source": filtered_sources[i]
                 })
             
             df = pd.DataFrame(table_data)
             
             # Display table
             st.dataframe(
-                df.drop('Action', axis=1),
+                df,
                 use_container_width=True,
                 hide_index=True
             )
-            
-            # Action buttons below table
-            st.write("**Quick Actions:**")
-            cols = st.columns(min(5, len(filtered_wines)))
-            for i, wine in enumerate(filtered_wines):
-                with cols[i % 5]:
-                    if st.button(f"📧 {wine.name[:15]}...", key=f"table_email_{i}"):
-                        st.session_state['selected_wine_for_email'] = wine
-                        st.success("✅ Wine selected!")
 
 # Library management section
 if all_wines:
     st.divider()
     st.write("#### Library Management")
     
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
     
     with col1:
         total_wines_in_library = len(st.session_state.get('wine_library', {}))
@@ -243,18 +223,6 @@ if all_wines:
     with col2:
         total_processed = len(st.session_state.get('processed_wines', []))
         st.metric("Latest Import", total_processed)
-    
-    with col3:
-        # Selected wine status
-        if 'selected_wine_for_email' in st.session_state:
-            st.metric("Selected Wine", "1")
-            selected = st.session_state['selected_wine_for_email']
-            st.caption(f"Selected: {selected.name}")
-            if st.button("❌ Clear Selection"):
-                del st.session_state['selected_wine_for_email']
-                st.rerun()
-        else:
-            st.metric("Selected Wine", "0")
     
     # Danger zone
     with st.expander("🗑️ Clear Library Data", expanded=False):
@@ -270,7 +238,7 @@ if all_wines:
         
         with col2:
             if st.button("Clear All Wine Data", type="secondary"):
-                keys_to_clear = ['wine_library', 'imported_wines', 'processed_wines', 'selected_wine_for_email']
+                keys_to_clear = ['wine_library', 'imported_wines', 'processed_wines']
                 for key in keys_to_clear:
                     if key in st.session_state:
                         del st.session_state[key]
