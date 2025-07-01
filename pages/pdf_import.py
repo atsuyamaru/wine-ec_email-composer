@@ -11,7 +11,7 @@ from auth import auth
 # Add the src directory to the path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from pdf_processor import extract_text_from_pdf, parse_wine_info_with_ai, deduplicate_wines
+from pdf_processor import extract_text_from_pdf, parse_wine_info_with_ai
 
 # Require authentication before accessing the app
 auth.require_auth()
@@ -126,17 +126,6 @@ with tab2:
         key="pdf_uploader"
     )
 
-# Add threshold adjustment
-threshold = st.slider(
-    "Similarity threshold for merging duplicates", 
-    min_value=0.1, 
-    max_value=0.8, 
-    value=0.2, 
-    step=0.05,
-    help="Lower values = more aggressive merging. Higher values = stricter matching. Try 0.2 for very loose matching."
-)
-
-
 # Check if we have files to process from pre-uploaded selection
 if 'pdf_files_to_process' in st.session_state:
     uploaded_files = st.session_state['pdf_files_to_process']
@@ -150,7 +139,7 @@ if 'processed_wines' in st.session_state and st.session_state['processed_wines']
     with col2:
         if st.button("🗑️ Clear", help="Clear processed wines and start over"):
             # Clear all session data
-            for key in ['processed_wines', 'extracted_texts', 'deduplicated_wines', 'deduplication_complete', 'wine_library', 'imported_wines']:
+            for key in ['processed_wines', 'extracted_texts', 'wine_library', 'imported_wines']:
                 if key in st.session_state:
                     del st.session_state[key]
             st.rerun()
@@ -165,8 +154,6 @@ elif uploaded_files:
     all_extracted_texts = {}
     
     try:
-        # Display threshold as checking
-        st.write(f"Similarity threshold: {threshold}")
         # Process each uploaded file
         for file_idx, uploaded_file in enumerate(uploaded_files):
             st.write(f"**Processing: {uploaded_file.name}**")
@@ -197,311 +184,160 @@ elif uploaded_files:
         if all_wines:
             st.session_state['processed_wines'] = all_wines.copy()
             st.session_state['extracted_texts'] = all_extracted_texts
-        
-        if all_wines:
-            # Show deduplication options before processing
-            original_count = len(all_wines)
-            st.write(f"**Found {original_count} total wines from {len(uploaded_files)} PDF file(s)**")
-            
-            st.write("#### Deduplication Settings")
-            
-            # Debug option
-            show_debug = st.checkbox("Show similarity debugging info", value=False)
-            
-            # Test specific wine pairs for debugging
-            if st.checkbox("🧪 Test specific wine pairs", value=False):
-                st.write("**Testing known duplicate pairs:**")
-                
-                # Find some test pairs
-                from pdf_processor import calculate_wine_similarity
-                
-                test_pairs = [
-                    ("BONITURA", "ボニトゥラ"),
-                    ("CASA DE FONTE PEQUENA BONITURA", "ボニトゥラ"),
-                    ("Cotes de Gascogne", "コート・ド・ガスコーニュ"),
-                    ("Petit Chablis", "プティ・シャブリ"),
-                    ("Toscana Rosato", "トスカーナ・ロサート"),
-                    ("Alma de Chile", "アルマ・デ・チリ"),
-                ]
-                
-                for name1, name2 in test_pairs:
-                    # Find wines with these names
-                    wine1 = None
-                    wine2 = None
-                    
-                    for wine in all_wines:
-                        if name1.lower() in wine.name.lower():
-                            wine1 = wine
-                        if name2 in wine.name:
-                            wine2 = wine
-                    
-                    if wine1 and wine2:
-                        similarity = calculate_wine_similarity(wine1, wine2)
-                        st.write(f"- **{wine1.name}** vs **{wine2.name}**: {similarity:.3f}")
-                        if similarity >= threshold:
-                            st.success(f"  ✅ Should merge (similarity {similarity:.3f} >= threshold {threshold})")
-                        else:
-                            st.warning(f"  ❌ Won't merge (similarity {similarity:.3f} < threshold {threshold})")
-                    else:
-                        st.write(f"- {name1} vs {name2}: One or both wines not found")
-            
-            # Add buttons for deduplication control
-            col1, col2 = st.columns([2, 1])
-            with col1:
-                if st.button("🔄 Run Deduplication", type="primary"):
-                    # Quick test of obvious duplicates first
-                    st.write("**Testing obvious duplicates:**")
-                    from pdf_processor import calculate_wine_similarity
-                    
-                    # Test identical names
-                    if len(all_wines) >= 2:
-                        wine1 = all_wines[0]  # BONITURA NV Pinot Grigio 2022
-                        wine2 = all_wines[1]  # BONITURA NV Pinot Grigio 2022
-                        sim_identical = calculate_wine_similarity(wine1, wine2)
-                        st.write(f"Identical wines similarity: {sim_identical:.3f}")
-                    
-                    # Test BONITURA variants
-                    bonitura_en = None
-                    bonitura_jp = None
-                    for wine in all_wines:
-                        if "BONITURA" in wine.name and not bonitura_en:
-                            bonitura_en = wine
-                        if "ボニトゥラ" in wine.name and not bonitura_jp:
-                            bonitura_jp = wine
-                    
-                    if bonitura_en and bonitura_jp:
-                        sim_bonitura = calculate_wine_similarity(bonitura_en, bonitura_jp)
-                        st.write(f"BONITURA EN/JP similarity: {sim_bonitura:.3f}")
-                    
-                    with st.spinner("Removing duplicates and merging similar wines..."):
-                        deduplicated_wines = deduplicate_wines(all_wines.copy(), similarity_threshold=threshold, debug=True)
-                        
-                    # Store deduplicated wines in session state
-                    st.session_state['deduplicated_wines'] = deduplicated_wines
-                    st.session_state['deduplication_complete'] = True
-                    st.rerun()
-            with col2:
-                if st.session_state.get('deduplication_complete', False):
-                    if st.button("🔄 Reset", help="Reset to run deduplication again with different settings"):
-                        st.session_state['deduplication_complete'] = False
-                        if 'deduplicated_wines' in st.session_state:
-                            del st.session_state['deduplicated_wines']
-                        st.rerun()
-            
-            # Use deduplicated wines if available
-            if st.session_state.get('deduplication_complete', False) and 'deduplicated_wines' in st.session_state:
-                all_wines = st.session_state['deduplicated_wines']
-                
-            # Show deduplication results and debug info only after processing
-            if st.session_state.get('deduplication_complete', False):
-                deduplicated_count = len(all_wines)
-                duplicates_removed = original_count - deduplicated_count
-                
-                if duplicates_removed > 0:
-                    st.success(f"✅ Removed {duplicates_removed} duplicate(s)! Now showing {deduplicated_count} unique wines.")
-                else:
-                    st.info(f"ℹ️ No duplicates found. Showing all {deduplicated_count} wines.")
-                
-                # Show debug information if requested
-                if show_debug:
-                    if hasattr(deduplicate_wines, '_debug_info'):
-                        debug_info = deduplicate_wines._debug_info
-                        if debug_info.get('similarities'):
-                            with st.expander("🔍 Similarity Analysis (Debug)"):
-                                for sim in debug_info['similarities']:
-                                    st.write("**Comparing:**")
-                                    st.write(f"- Wine 1: {sim['wine1']}")
-                                    st.write(f"- Wine 2: {sim['wine2']}")
-                                    st.write(f"- Similarity: {sim['similarity']:.3f}")
-                                    st.write(f"- Merged: {'✅ Yes' if sim['merged'] else '❌ No'}")
-                                    st.write("---")
-                    
-                    # Show merge debug information
-                    from pdf_processor import merge_wine_info
-                    if hasattr(merge_wine_info, '_debug_merges') and merge_wine_info._debug_merges:
-                        with st.expander("🇯🇵 Japanese Priority Debug"):
-                            for merge in merge_wine_info._debug_merges:
-                                st.write("**Merging Process:**")
-                                st.write(f"- Wine 1: {merge['wine1_name']}")
-                                st.write(f"  - Japanese Score: {merge['wine1_jp_score']}")
-                                st.write(f"  - Has Japanese Name: {'✅' if merge['wine1_has_jp_name'] else '❌'}")
-                                st.write(f"- Wine 2: {merge['wine2_name']}")
-                                st.write(f"  - Japanese Score: {merge['wine2_jp_score']}")
-                                st.write(f"  - Has Japanese Name: {'✅' if merge['wine2_has_jp_name'] else '❌'}")
-                                st.write(f"- **Primary Chosen:** {merge['primary_chosen']}")
-                                st.write(f"- **Final Name:** {merge['final_name']}")
-                                st.write("---")
-                    
-                    # Test Japanese detection
-                    with st.expander("🧪 Test Japanese Detection"):
-                        test_names = [
-                            "Crémant de Loire Brut Zero NV",
-                            "クレマン・ド・ロワール ブリュット・ゼロ NV",
-                            "シャブリ",
-                            "Chablis",
-                            "ドメーヌ・ラロッシュ"
-                        ]
-                        
-                        from pdf_processor import contains_japanese
-                        for name in test_names:
-                            has_jp = contains_japanese(name)
-                            st.write(f"- '{name}': {'🇯🇵 Japanese' if has_jp else '🇫🇷 Non-Japanese'}")
-            else:
-                st.info("⚙️ Adjust the similarity threshold above and click 'Run Deduplication' to remove duplicates, or go to Single Wine page to manually select and merge wines.")
-        
-        if all_wines:
-            st.write(f"#### Total Extracted Wine Information ({len(all_wines)} wines)")
-            
-            # Display all wines with source information
-            for i, wine in enumerate(all_wines, 1):
-                with st.expander(f"Wine {i}: {wine.name}"):
-                    if wine.producer:
-                        st.write(f"**Producer:** {wine.producer}")
-                    if wine.country:
-                        st.write(f"**Country:** {wine.country}")
-                    if wine.region:
-                        st.write(f"**Region:** {wine.region}")
-                    if wine.grape_variety:
-                        st.write(f"**Grape Variety:** {wine.grape_variety}")
-                    if wine.vintage:
-                        st.write(f"**Vintage:** {wine.vintage}")
-                    if wine.price:
-                        st.write(f"**Price:** {wine.price}")
-                    if wine.alcohol_content:
-                        st.write(f"**Alcohol:** {wine.alcohol_content}")
-                    if wine.description:
-                        st.write(f"**Description:** {wine.description}")
-                    
-                    # Show source file(s)
-                    source = getattr(wine, 'source_file', 'Unknown')
-                    if ',' in source:
-                        st.info(f"🔗 **Merged from:** {source}")
-                    else:
-                        st.info(f"📄 **Source:** {source}")
-            
-            # Show raw extracted text for each file
-            with st.expander("View Raw Extracted Text from All Files"):
-                for file_name, text in all_extracted_texts.items():
-                    st.write(f"**{file_name}:**")
-                    st.text_area(f"Text from {file_name}", text, height=150, disabled=True, key=f"text_{file_name}")
-            
-            # Store wines in session state automatically
-            if 'wine_library' not in st.session_state:
-                st.session_state['wine_library'] = {}
-            
-            # Add all wines to the library with unique IDs
-            wines_added = 0
-            for wine in all_wines:
-                # Create unique ID for wine
-                wine_id = f"{wine.name}_{getattr(wine, 'source_file', 'unknown')}"
-                if wine_id not in st.session_state['wine_library']:
-                    st.session_state['wine_library'][wine_id] = wine
-                    wines_added += 1
-            
-            # Also store in imported_wines format for compatibility with 6bottles page
-            st.session_state['imported_wines'] = {
-                'names': [wine.name for wine in all_wines],
-                'full_info': all_wines
-            }
-            
-            if wines_added > 0:
-                st.success(f"✅ Added {wines_added} wines to your wine library!")
-            
-            # Export options - always visible
-            st.write("#### Export Options")
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                # Export all wines as CSV
-                if st.button("📊 Export All as CSV"):
-                    import pandas as pd
-                    
-                    # Convert wines to DataFrame
-                    wines_data = []
-                    for wine in all_wines:
-                        wine_dict = wine.model_dump()
-                        wines_data.append(wine_dict)
-                    
-                    df = pd.DataFrame(wines_data)
-                    
-                    # Convert to CSV
-                    csv = df.to_csv(index=False)
-                    
-                    # Create filename with timestamp
-                    from datetime import datetime
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    
-                    # Download button
-                    st.download_button(
-                        label="Download Combined CSV",
-                        data=csv,
-                        file_name=f"wine_list_combined_{timestamp}.csv",
-                        mime="text/csv"
-                    )
-            
-            with col2:
-                # Show wine library status
-                total_wines_in_library = len(st.session_state.get('wine_library', {}))
-                st.info(f"📚 Wine Library: {total_wines_in_library} wines stored")
-                
-                if st.button("🗑️ Clear Wine Library"):
-                    st.session_state['wine_library'] = {}
-                    st.success("Wine library cleared!")
-                    st.rerun()
-            
-            # Wine Library Management
-            st.write("#### Wine Library")
-            
-            if st.session_state.get('wine_library'):
-                st.write("Select wines to use for email generation:")
-                
-                # Create columns for better layout
-                cols = st.columns(3)
-                selected_wine_ids = []
-                
-                for i, (wine_id, wine) in enumerate(st.session_state['wine_library'].items()):
-                    col_idx = i % 3
-                    with cols[col_idx]:
-                        source = getattr(wine, 'source_file', 'Unknown')
-                        label = f"{wine.name}"
-                        if wine.producer:
-                            label += f" ({wine.producer})"
-                        
-                        if st.button(f"🍷 Use: {label}", key=f"use_{wine_id}"):
-                            # Store selected wine for single wine page
-                            st.session_state['selected_wine_for_email'] = wine
-                            st.success(f"✅ Selected: {wine.name}")
-                            st.info("💡 Go to the 'Single Wine' page to generate email with this wine.")
-                
-                st.divider()
-                
-                # Show current selection
-                if 'selected_wine_for_email' in st.session_state:
-                    selected = st.session_state['selected_wine_for_email']
-                    st.write("**Currently Selected Wine:**")
-                    col1, col2 = st.columns([3, 1])
-                    with col1:
-                        st.write(f"🍷 **{selected.name}**")
-                        if selected.producer:
-                            st.write(f"Producer: {selected.producer}")
-                        if selected.country:
-                            st.write(f"Country: {selected.country}")
-                    with col2:
-                        if st.button("❌ Clear Selection"):
-                            del st.session_state['selected_wine_for_email']
-                            st.rerun()
-                
-            else:
-                st.info("📚 No wines in library yet. Upload PDFs above to add wines.")
-        else:
-            st.error("❌ No wines could be extracted from any of the uploaded files.")
-    
+            st.write(f"**Found {len(all_wines)} total wines from {len(uploaded_files)} PDF file(s)**")
+
     except Exception as e:
         st.error(f"❌ Error processing PDFs: {str(e)}")
 
 else:
     # No files uploaded and no session data
     st.info("📤 Upload PDF files above to start importing wines")
+
+# WINE DISPLAY AND LIBRARY MANAGEMENT
+if 'processed_wines' in st.session_state and st.session_state['processed_wines']:
+    all_wines = st.session_state.get('processed_wines', [])
+    all_extracted_texts = st.session_state.get('extracted_texts', {})
+    
+    if all_wines:
+        st.write(f"#### Extracted Wine Information ({len(all_wines)} wines)")
+        
+        # Display all wines with source information
+        for i, wine in enumerate(all_wines, 1):
+            with st.expander(f"Wine {i}: {wine.name}"):
+                if wine.producer:
+                    st.write(f"**Producer:** {wine.producer}")
+                if wine.country:
+                    st.write(f"**Country:** {wine.country}")
+                if wine.region:
+                    st.write(f"**Region:** {wine.region}")
+                if wine.grape_variety:
+                    st.write(f"**Grape Variety:** {wine.grape_variety}")
+                if wine.vintage:
+                    st.write(f"**Vintage:** {wine.vintage}")
+                if wine.price:
+                    st.write(f"**Price:** {wine.price}")
+                if wine.alcohol_content:
+                    st.write(f"**Alcohol:** {wine.alcohol_content}")
+                if wine.description:
+                    st.write(f"**Description:** {wine.description}")
+                
+                # Show source file(s)
+                source = getattr(wine, 'source_file', 'Unknown')
+                st.info(f"📄 **Source:** {source}")
+        
+        # Show raw extracted text for each file
+        with st.expander("View Raw Extracted Text from All Files"):
+            for file_name, text in all_extracted_texts.items():
+                st.write(f"**{file_name}:**")
+                st.text_area(f"Text from {file_name}", text, height=150, disabled=True, key=f"text_{file_name}")
+        
+        # Store wines in session state automatically
+        if 'wine_library' not in st.session_state:
+            st.session_state['wine_library'] = {}
+        
+        # Add all wines to the library with unique IDs
+        wines_added = 0
+        for wine in all_wines:
+            # Create unique ID for wine
+            wine_id = f"{wine.name}_{getattr(wine, 'source_file', 'unknown')}"
+            if wine_id not in st.session_state['wine_library']:
+                st.session_state['wine_library'][wine_id] = wine
+                wines_added += 1
+        
+        # Also store in imported_wines format for compatibility with 6bottles page
+        st.session_state['imported_wines'] = {
+            'names': [wine.name for wine in all_wines],
+            'full_info': all_wines
+        }
+        
+        if wines_added > 0:
+            st.success(f"✅ Added {wines_added} wines to your wine library!")
+        
+        # Export options
+        st.write("#### Export Options")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Export all wines as CSV
+            if st.button("📊 Export All as CSV"):
+                import pandas as pd
+                
+                # Convert wines to DataFrame
+                wines_data = []
+                for wine in all_wines:
+                    wine_dict = wine.model_dump()
+                    wines_data.append(wine_dict)
+                
+                df = pd.DataFrame(wines_data)
+                
+                # Convert to CSV
+                csv = df.to_csv(index=False)
+                
+                # Create filename with timestamp
+                from datetime import datetime
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                
+                # Download button
+                st.download_button(
+                    label="Download Combined CSV",
+                    data=csv,
+                    file_name=f"wine_list_combined_{timestamp}.csv",
+                    mime="text/csv"
+                )
+        
+        with col2:
+            # Show wine library status
+            total_wines_in_library = len(st.session_state.get('wine_library', {}))
+            st.info(f"📚 Wine Library: {total_wines_in_library} wines stored")
+            
+            if st.button("🗑️ Clear Wine Library"):
+                st.session_state['wine_library'] = {}
+                st.success("Wine library cleared!")
+                st.rerun()
+        
+        # Wine Library Management
+        st.write("#### Wine Library")
+        
+        if st.session_state.get('wine_library'):
+            st.write("Select wines to use for email generation:")
+            
+            # Create columns for better layout
+            cols = st.columns(3)
+            
+            for i, (wine_id, wine) in enumerate(st.session_state['wine_library'].items()):
+                col_idx = i % 3
+                with cols[col_idx]:
+                    source = getattr(wine, 'source_file', 'Unknown')
+                    label = f"{wine.name}"
+                    if wine.producer:
+                        label += f" ({wine.producer})"
+                    
+                    if st.button(f"🍷 Use: {label}", key=f"use_{wine_id}"):
+                        # Store selected wine for single wine page
+                        st.session_state['selected_wine_for_email'] = wine
+                        st.success(f"✅ Selected: {wine.name}")
+                        st.info("💡 Go to the 'Single Wine' page to generate email with this wine.")
+            
+            st.divider()
+            
+            # Show current selection
+            if 'selected_wine_for_email' in st.session_state:
+                selected = st.session_state['selected_wine_for_email']
+                st.write("**Currently Selected Wine:**")
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    st.write(f"🍷 **{selected.name}**")
+                    if selected.producer:
+                        st.write(f"Producer: {selected.producer}")
+                    if selected.country:
+                        st.write(f"Country: {selected.country}")
+                with col2:
+                    if st.button("❌ Clear Selection"):
+                        del st.session_state['selected_wine_for_email']
+                        st.rerun()
+            
+        else:
+            st.info("📚 No wines in library yet. Upload PDFs above to add wines.")
 
 # Display stored wines if any (legacy compatibility)
 if 'imported_wines' in st.session_state and not st.session_state.get('processed_wines'):
