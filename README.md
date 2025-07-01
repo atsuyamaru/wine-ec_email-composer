@@ -13,6 +13,7 @@ https://wine-email-composer.streamlit.app
 - **PDF Wine List Import** - Extract wine information from Japanese PDF menus with AI
 - **Wine Library Management** - Session-based storage with intelligent deduplication
 - **Multi-Model Support** - Various OpenAI models including GPT-4o, O3, and O4
+- **Secure Authentication** - Session-based login system for production deployment
 
 ## Installation
 
@@ -28,11 +29,21 @@ uv sync
 export OPENAI_API_KEY="your-api-key-here"
 ```
 
+## Authentication Setup
+
+The app includes secure authentication for production deployment on Streamlit Cloud. For detailed setup instructions, see [AUTHENTICATION_SETUP.md](AUTHENTICATION_SETUP.md).
+
+**Quick Setup:**
+
+- **Local Development**: Uses demo credentials (admin/password123)
+- **Production**: Configure credentials in Streamlit Cloud secrets
+- **Security**: Session-based authentication protects all pages
+
 ## Usage
 
 ```bash
 # Run the application
-streamlit run single_wine.py
+uv run streamlit run single_wine.py
 ```
 
 The application will open in your web browser. Navigate between pages using the sidebar:
@@ -47,6 +58,7 @@ The application will open in your web browser. Navigate between pages using the 
 ```
 wine-ec_email-composer/
 ├── single_wine.py              # Main entry - Single wine emails
+├── auth.py                     # Authentication module
 ├── pages/
 │   ├── packages_6bottles.py    # 6-bottle package emails
 │   ├── pdf_import.py           # PDF import functionality
@@ -57,6 +69,9 @@ wine-ec_email-composer/
 │   ├── type_schema.py          # Data models (Pydantic)
 │   ├── wine-list-pdf/          # Sample PDF files
 │   └── *.csv                   # Historical email templates
+├── .streamlit/
+│   └── secrets.toml            # Authentication credentials template
+├── AUTHENTICATION_SETUP.md     # Authentication setup guide
 ├── CLAUDE.md                   # Project documentation
 └── README.md                   # This file
 ```
