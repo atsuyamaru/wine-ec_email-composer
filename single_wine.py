@@ -194,6 +194,7 @@ with st.form(key='ask_input_form'):
         producer = st.text_input("Producer")
         wine_country = st.text_input("Wine Country", placeholder="e.g., France, Italy, Spain")
         wine_cepage = st.text_input("Wine Cépage")
+        product_comments = st.text_area("Product Comments", placeholder="Tasting notes, wine characteristics, vintage details, etc.", height=200)
     else:
         # Use merged wine information
         if selected_wines:
@@ -207,27 +208,23 @@ with st.form(key='ask_input_form'):
                                        help="Automatically populated from selected wines")
             
             wine_cepage = st.text_input("Wine Cépage", value=merged_wine.grape_varieties)
-            
-            # Show additional info from library if available
-            if merged_wine.descriptions:
-                with st.expander("📝 Additional Info from Wine Library"):
-                    st.write(merged_wine.descriptions)
+            product_comments = st.text_area("Product Comments", value=merged_wine.descriptions or "", 
+                                           help="Automatically populated from wine library", height=200)
         elif current_selected_wine:
             # Fallback for backward compatibility
             wine_name = st.text_input("Wine Name", value=current_selected_wine.name or "")
             producer = st.text_input("Producer", value=current_selected_wine.producer or "")
             wine_country = st.text_input("Wine Country", value=current_selected_wine.country or "")
             wine_cepage = st.text_input("Wine Cépage", value=current_selected_wine.grape_variety or "")
-            
-            if current_selected_wine.description:
-                with st.expander("📝 Additional Info from Wine Library"):
-                    st.write(current_selected_wine.description)
+            product_comments = st.text_area("Product Comments", value=current_selected_wine.description or "", 
+                                           help="Automatically populated from wine library", height=200)
         else:
             # Fallback to manual input if no wine selected
             wine_name = st.text_input("Wine Name")
             producer = st.text_input("Producer")
             wine_country = st.text_input("Wine Country", placeholder="e.g., France, Italy, Spain")
             wine_cepage = st.text_input("Wine Cépage")
+            product_comments = st.text_area("Product Comments", placeholder="Tasting notes, wine characteristics, vintage details, etc.", height=200)
     
     submit = st.form_submit_button("🚀 Generate Email", type="primary")
 
@@ -268,6 +265,7 @@ if submit:
     Producer(s): {producer},
     Wine Country: {wine_country},
     Wine Cépage: {wine_cepage},
+    Product Comments: {product_comments},
     ======
 
     ## Output Language: Japanese
