@@ -119,42 +119,41 @@ elif all_wines:
             key="wine_count_mode"
         )
         
-        wine_options = [f"{wine.name} ({wine.producer or 'Unknown'})" for wine in all_wines]
+        # Add option numbers to wine labels
+        numbered_wine_options = [f"{i+1}. {wine.name} ({wine.producer or 'Unknown'})" for i, wine in enumerate(all_wines)]
         
         if selection_mode == "Single Wine":
             # Single wine selection
             selected_idx = st.selectbox(
-                "Select wine:", 
+                "🍷 Select wine:", 
                 range(len(all_wines)), 
-                format_func=lambda x: wine_options[x],
+                format_func=lambda x: numbered_wine_options[x],
                 key="wine_dropdown_single"
             )
             selected_wines = [all_wines[selected_idx]]
         else:
-            # Two wine selection
-            col1, col2 = st.columns(2)
-            with col1:
-                first_idx = st.selectbox(
-                    "First wine:", 
-                    range(len(all_wines)), 
-                    format_func=lambda x: wine_options[x],
-                    key="wine_dropdown_first"
+            # Two wine selection - single column, two rows
+            first_idx = st.selectbox(
+                "1️⃣ First wine:", 
+                range(len(all_wines)), 
+                format_func=lambda x: numbered_wine_options[x],
+                key="wine_dropdown_first"
+            )
+            
+            # Filter out the first selected wine from second dropdown
+            available_second = [i for i in range(len(all_wines)) if i != first_idx]
+            if available_second:
+                second_idx_pos = st.selectbox(
+                    "2️⃣ Second wine:", 
+                    range(len(available_second)), 
+                    format_func=lambda x: numbered_wine_options[available_second[x]],
+                    key="wine_dropdown_second"
                 )
-            with col2:
-                # Filter out the first selected wine from second dropdown
-                available_second = [i for i in range(len(all_wines)) if i != first_idx]
-                if available_second:
-                    second_idx_pos = st.selectbox(
-                        "Second wine:", 
-                        range(len(available_second)), 
-                        format_func=lambda x: wine_options[available_second[x]],
-                        key="wine_dropdown_second"
-                    )
-                    second_idx = available_second[second_idx_pos]
-                    selected_wines = [all_wines[first_idx], all_wines[second_idx]]
-                else:
-                    st.warning("Need at least 2 wines in library for two-wine selection")
-                    selected_wines = [all_wines[first_idx]]
+                second_idx = available_second[second_idx_pos]
+                selected_wines = [all_wines[first_idx], all_wines[second_idx]]
+            else:
+                st.warning("Need at least 2 wines in library for two-wine selection")
+                selected_wines = [all_wines[first_idx]]
         
         # Merge wine information
         if selected_wines:
@@ -194,7 +193,7 @@ with st.form(key='ask_input_form'):
         producer = st.text_input("Producer")
         wine_country = st.text_input("Wine Country", placeholder="e.g., France, Italy, Spain")
         wine_cepage = st.text_input("Wine Cépage")
-        product_comments = st.text_area("Product Comments", placeholder="Tasting notes, wine characteristics, vintage details, etc.", height=200)
+        product_comments = st.text_area("Product Comments", placeholder="Tasting notes, wine characteristics, vintage details, etc.", height=250)
     else:
         # Use merged wine information
         if selected_wines:
@@ -209,7 +208,7 @@ with st.form(key='ask_input_form'):
             
             wine_cepage = st.text_input("Wine Cépage", value=merged_wine.grape_varieties)
             product_comments = st.text_area("Product Comments", value=merged_wine.descriptions or "", 
-                                           help="Automatically populated from wine library", height=200)
+                                           help="Automatically populated from wine library", height=250)
         elif current_selected_wine:
             # Fallback for backward compatibility
             wine_name = st.text_input("Wine Name", value=current_selected_wine.name or "")
@@ -217,14 +216,14 @@ with st.form(key='ask_input_form'):
             wine_country = st.text_input("Wine Country", value=current_selected_wine.country or "")
             wine_cepage = st.text_input("Wine Cépage", value=current_selected_wine.grape_variety or "")
             product_comments = st.text_area("Product Comments", value=current_selected_wine.description or "", 
-                                           help="Automatically populated from wine library", height=200)
+                                           help="Automatically populated from wine library", height=250)
         else:
             # Fallback to manual input if no wine selected
             wine_name = st.text_input("Wine Name")
             producer = st.text_input("Producer")
             wine_country = st.text_input("Wine Country", placeholder="e.g., France, Italy, Spain")
             wine_cepage = st.text_input("Wine Cépage")
-            product_comments = st.text_area("Product Comments", placeholder="Tasting notes, wine characteristics, vintage details, etc.", height=200)
+            product_comments = st.text_area("Product Comments", placeholder="Tasting notes, wine characteristics, vintage details, etc.", height=250)
     
     submit = st.form_submit_button("🚀 Generate Email", type="primary")
 
