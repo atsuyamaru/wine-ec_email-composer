@@ -81,12 +81,28 @@ with tab1:
                             def __init__(self, content, name):
                                 self.content = content
                                 self.name = name
+                                self.position = 0
                             
-                            def read(self):
-                                return self.content
+                            def read(self, size=-1):
+                                if size == -1:
+                                    data = self.content[self.position:]
+                                    self.position = len(self.content)
+                                else:
+                                    data = self.content[self.position:self.position + size]
+                                    self.position += len(data)
+                                return data
                             
-                            def seek(self, pos):
-                                pass
+                            def seek(self, pos, whence=0):
+                                if whence == 0:  # SEEK_SET
+                                    self.position = pos
+                                elif whence == 1:  # SEEK_CUR
+                                    self.position += pos
+                                elif whence == 2:  # SEEK_END
+                                    self.position = len(self.content) + pos
+                                return self.position
+                            
+                            def tell(self):
+                                return self.position
                         
                         pdf_content = f.read()
                         pdf_file = PDFFile(pdf_content, pdf_path.name)
